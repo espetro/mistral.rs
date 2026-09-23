@@ -35,8 +35,12 @@ enum Cmd {
         port: u16,
         #[arg(long)]
         paged: bool,
-        #[arg(long, default_value = "f32")]
-        dtype: String,
+        /// Backbone precision; defaults to the checkpoint's exported dtype (kev.json).
+        #[arg(long)]
+        dtype: Option<String>,
+        /// In-situ quantization: a bit width (2-8, e.g. `--isq 8`) or a type like q8_0, afq8.
+        #[arg(long)]
+        isq: Option<String>,
         /// The checkpoint name reported by /v1/models (e.g. jaredpalmer/kev-0.8b).
         #[arg(long, default_value = "kev-latest")]
         run: String,
@@ -51,8 +55,10 @@ enum Cmd {
         reference: PathBuf,
         #[arg(long)]
         paged: bool,
-        #[arg(long, default_value = "f32")]
-        dtype: String,
+        #[arg(long)]
+        dtype: Option<String>,
+        #[arg(long)]
+        isq: Option<String>,
     },
     /// Compare the record->ids encoder output against the reference JSON, token-exact.
     EncodeCheck {
@@ -88,9 +94,15 @@ fn argmax(p: &[f32]) -> usize {
         .unwrap_or(0)
 }
 
-async fn parity(checkpoint: &Path, reference: &Path, dtype: &str, paged: bool) -> Result<()> {
+async fn parity(
+    checkpoint: &Path,
+    reference: &Path,
+    dtype: Option<&str>,
+    isq: Option<&str>,
+    paged: bool,
+) -> Result<()> {
     let entries: Vec<RefEntry> = serde_json::from_str(&std::fs::read_to_string(reference)?)?;
-    let engine = KevEngine::load(checkpoint, dtype, paged, None).await?;
+    let engine = KevEngine::load(checkpoint, dtype, isq, paged, None).await?;
     let mut max_dp = 0f32;
     let mut sum_dp = 0f64;
     let mut n_cells = 0usize;
@@ -229,11 +241,13 @@ async fn main() -> Result<()> {
             port,
             paged,
             dtype,
+            isq,
             run,
             release_date,
         } => {
             let checkpoint = checkpoint::resolve(&checkpoint).await?;
-            let mut engine = KevEngine::load(&checkpoint, &dtype, paged, None).await?;
+            let mut engine =
+                KevEngine::load(&checkpoint, dtype.as_deref(), isq.as_deref(), paged, None).await?;
             engine.run = run;
             kev_rs::server::serve(engine, release_date, &host, port).await
         }
@@ -242,9 +256,17 @@ async fn main() -> Result<()> {
             reference,
             paged,
             dtype,
+            isq,
         } => {
             let checkpoint = checkpoint::resolve(&checkpoint).await?;
-            parity(&checkpoint, &reference, &dtype, paged).await
+            parity(
+                &checkpoint,
+                &reference,
+                dtype.as_deref(),
+                isq.as_deref(),
+                paged,
+            )
+            .await
         }
         Cmd::EncodeCheck {
             checkpoint,

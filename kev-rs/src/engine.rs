@@ -10,7 +10,9 @@ use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use candle_core::{DType, Device, Tensor};
-use mistralrs::{Model, ModelBuilder, ModelDType, PagedAttentionMetaBuilder};
+use mistralrs::{
+    parse_isq_value, IsqBits, Model, ModelBuilder, ModelDType, PagedAttentionMetaBuilder,
+};
 use tokenizers::Tokenizer;
 
 use crate::encode::{encode, Encoding, KevJson, SpecialIds, SERVE_MAX_BRANCH, SERVE_MAX_STATE};
@@ -87,7 +89,8 @@ fn hash_ids(ids: &[u32]) -> u64 {
 impl KevEngine {
     pub async fn load(
         checkpoint: &Path,
-        dtype: &str,
+        dtype: Option<&str>,
+        isq: Option<&str>,
         paged: bool,
         prefix_cache_size: Option<usize>,
     ) -> Result<Self> {
@@ -106,12 +109,23 @@ impl KevEngine {
             kev.head_dim,
             kev.temperature as f64,
         )?;
+        let dtype = dtype.or(kev.dtype.as_deref()).unwrap_or("f32");
         let mut builder = ModelBuilder::new(model_dir.to_string_lossy().to_string());
         builder = match dtype {
+            "auto" => builder.with_dtype(ModelDType::Auto),
             "f32" => builder.with_dtype(ModelDType::F32),
             "bf16" => builder.with_dtype(ModelDType::BF16),
-            other => bail!("unknown --dtype {other} (want f32|bf16)"),
+            "f16" => builder.with_dtype(ModelDType::F16),
+            other => bail!("unknown --dtype {other} (want auto|f32|bf16|f16)"),
         };
+        if let Some(isq) = isq {
+            builder = match IsqBits::try_from(isq) {
+                Ok(bits) => builder.with_auto_isq(bits),
+                Err(()) => {
+                    builder.with_isq(parse_isq_value(isq, None).map_err(|e| anyhow::anyhow!(e))?)
+                }
+            };
+        }
         if paged {
             builder = builder.with_paged_attn(PagedAttentionMetaBuilder::default().build()?);
         }

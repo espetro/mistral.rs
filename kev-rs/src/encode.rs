@@ -35,6 +35,8 @@ pub struct KevJson {
     pub special_tokens: SpecialTokens,
     pub pad_id: u32,
     pub option_isolation: bool,
+    /// Backbone precision recorded by export_checkpoint.py --dtype; absent on older exports.
+    pub dtype: Option<String>,
 }
 
 #[derive(Deserialize)]
