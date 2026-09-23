@@ -22,6 +22,8 @@ def main():
     ap.add_argument("--records", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default=None)
+    ap.add_argument("--no-merge", action="store_true")
     a = ap.parse_args()
 
     records = load_records(a.records)
@@ -31,7 +33,8 @@ def main():
         records = records[: a.limit]
 
     ck = Checkpoint(a.run)
-    tok, model = ck.load("cpu", LoadOptions(dtype=None, merge=True, backend="torch"))
+    dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}.get(a.dtype)
+    tok, model = ck.load("cpu", LoadOptions(dtype=dtype, merge=not a.no_merge, backend="torch"))
 
     out = []
     for i, req in enumerate(records):
