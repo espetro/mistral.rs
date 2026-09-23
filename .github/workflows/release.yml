@@ -141,7 +141,7 @@ jobs:
                   f"workspace version {workspace_version} does not match Python version {python_version}"
               )
 
-          # FORK-ONLY (espetro/mistral.rs): prerelease tags (v0.9.3-pre.1) build the unbumped workspace version.
+          # FORK-ONLY (espetro/mistral.rs): prerelease tags (v0.9.3-pre.2) build the unbumped workspace version.
           tag = os.environ["TAG"].removeprefix("v").split("-", 1)[0]
           if tag and tag != workspace_version:
               raise SystemExit(f"tag {tag} does not match package version {workspace_version}")

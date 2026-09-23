@@ -8,7 +8,7 @@
 > ```sh
 > # installer: newest fork release (prereleases included), picks the Metal / CUDA / CPU archive for this machine
 > sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"
-> # pin a release instead: MISTRALRS_INSTALL_TAG=v0.9.3-pre.1 sh -c "$(curl ...)"
+> # pin a release instead: MISTRALRS_INSTALL_TAG=v0.9.3-pre.2 sh -c "$(curl ...)"
 > # or with mise (GitHub-releases backend; `prerelease=true` is required since fork releases are prereleases,
 > # `matching` narrows to the CPU archive, use mistralrs-metal on macOS)
 > mise use -g "github:espetro/mistral.rs[prerelease=true,matching=mistralrs-cpu]@latest"

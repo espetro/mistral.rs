@@ -13,7 +13,7 @@ This fork's release workflow builds GitHub prereleases on GitHub-hosted runners
 compiled without a GPU in the `nvidia/cuda` devel container; the CUDA leg and the
 installer overrides are fork-only workarounds, not upstream material). Binaries
 ship `mistralrs` and `kev-rs` in the same archive. `./install.sh` installs the newest
-fork release (prereleases included); pin one with `MISTRALRS_INSTALL_TAG=v0.9.3-pre.1 ./install.sh`.
+fork release (prereleases included); pin one with `MISTRALRS_INSTALL_TAG=v0.9.3-pre.2 ./install.sh`.
 
 ## Usage
 
