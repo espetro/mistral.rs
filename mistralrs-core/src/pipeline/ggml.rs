@@ -5,7 +5,7 @@ use super::{
 };
 use super::{
     AnyMoePipelineMixin, CacheManagerMixin, EitherCache, ForwardInputsResult, IsqPipelineMixin,
-    MetadataMixin, ModelCategory, PreProcessingMixin,
+    MetadataMixin, ModelCategory, PreProcessingMixin, PrefillOutputMode,
 };
 use crate::attention::ATTENTION_CHUNK_SIZE;
 use crate::device_map::DeviceMapper;
@@ -543,7 +543,7 @@ impl Pipeline for GGMLPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardInputsResult, candle_core::Error> {
         let ModelInputs {
             input_ids,
@@ -558,6 +558,9 @@ impl Pipeline for GGMLPipeline {
             recurrent_batch_kind: _,
             adapter_leases: _adapter_leases,
         } = *inputs.downcast().expect("Downcast failed.");
+        if mode.hidden_states {
+            candle_core::bail!("return_hidden_states is not supported for GGML models");
+        }
         let logits = match self.model {
             Model::Llama(ref model) => {
                 model.forward(&input_ids, &seqlen_offsets, context_lens, None)?
@@ -574,7 +577,7 @@ impl Pipeline for GGMLPipeline {
                 flash_meta_full.as_ref().unwrap_or(&flash_meta),
             )?,
         };
-        if return_raw_logits {
+        if mode.raw_logits {
             Ok(ForwardInputsResult::RawLogits { logits })
         } else {
             Ok(ForwardInputsResult::CausalGeneration { logits })

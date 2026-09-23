@@ -79,6 +79,7 @@ pub fn parse_request(
         tools: None,
         logits_processors: None,
         return_raw_logits: false,
+        return_hidden_states: false,
         web_search_options: None,
         enable_code_execution: false,
         enable_shell: false,
@@ -236,6 +237,7 @@ pub fn match_responses(
             SpeechGenerationResponder::RawResponse((StatusCode::OK, headers, bytes).into_response())
         }
         Response::Raw { .. } => unreachable!(),
+        Response::HiddenStates { .. } => unreachable!(),
         Response::Embeddings { .. } => unreachable!(),
         Response::AgenticToolCallProgress { .. } => unreachable!(),
         Response::BlockDenoisingProgress(_) => unreachable!(),

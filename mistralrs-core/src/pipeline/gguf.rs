@@ -5,7 +5,7 @@ use super::{
 };
 use super::{
     AnyMoePipelineMixin, CacheManagerMixin, EitherCache, ForwardInputsResult, IsqPipelineMixin,
-    MetadataMixin, ModelCategory, PreProcessingMixin,
+    MetadataMixin, ModelCategory, PreProcessingMixin, PrefillOutputMode,
 };
 use crate::device_map::{self, DeviceMapper};
 use crate::distributed::WorkerTransferData;
@@ -1518,8 +1518,11 @@ impl Pipeline for GGUFPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardInputsResult, candle_core::Error> {
+        if mode.hidden_states {
+            candle_core::bail!("return_hidden_states is not supported for GGUF models");
+        }
         let ModelInputs {
             input_ids,
             input_ids_full,
@@ -1557,7 +1560,7 @@ impl Pipeline for GGUFPipeline {
                 flash_meta_full.as_ref().unwrap_or(&flash_meta),
             )?,
         };
-        if return_raw_logits {
+        if mode.raw_logits {
             Ok(ForwardInputsResult::RawLogits { logits })
         } else {
             Ok(ForwardInputsResult::CausalGeneration { logits })

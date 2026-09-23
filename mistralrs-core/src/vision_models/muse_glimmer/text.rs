@@ -618,8 +618,12 @@ impl TextModel {
         }
         let xs = xs.to_device(&self.device)?.apply(&self.norm)?;
         let xs = ctx.logits(&xs)?;
+        let logits = ctx.lm_head(&*self.lm_head, &xs)?;
+        if ctx.returns_hidden_states() {
+            return Ok(logits);
+        }
         transform_output_logits(
-            &ctx.lm_head(&*self.lm_head, &xs)?,
+            &logits,
             self.output_multiplier,
             self.final_logit_softcapping,
         )

@@ -380,6 +380,11 @@ pub enum Response {
         logits_chunks: Vec<Tensor>,
         tokens: Vec<u32>,
     },
+    HiddenStates {
+        hidden: Tensor,
+        tokens: Vec<u32>,
+        prefix_cached_tokens: usize,
+    },
     Embeddings {
         embeddings: Vec<f32>,
         prompt_tokens: usize,
@@ -423,6 +428,11 @@ pub enum ResponseOk {
     Raw {
         logits_chunks: Vec<Tensor>,
         tokens: Vec<u32>,
+    },
+    HiddenStates {
+        hidden: Tensor,
+        tokens: Vec<u32>,
+        prefix_cached_tokens: usize,
     },
     // Embeddings
     Embeddings {
@@ -522,6 +532,15 @@ impl Response {
             } => Ok(ResponseOk::Raw {
                 logits_chunks,
                 tokens,
+            }),
+            Self::HiddenStates {
+                hidden,
+                tokens,
+                prefix_cached_tokens,
+            } => Ok(ResponseOk::HiddenStates {
+                hidden,
+                tokens,
+                prefix_cached_tokens,
             }),
             Self::Embeddings {
                 embeddings,

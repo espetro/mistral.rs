@@ -33,7 +33,7 @@ use crate::{
 use super::CacheConfig;
 
 /// Bucket key: (sequence length bucket, cached prefix, raw request, media, token offset)
-type BucketKey = (usize, usize, Option<usize>, u8, usize);
+type BucketKey = (usize, usize, Option<usize>, u8, usize, bool);
 
 const RAGGED_PROMPT_BUCKET_TOKENS: usize = 256;
 #[derive(Clone, Copy)]
@@ -288,7 +288,7 @@ impl PagedAttentionScheduler {
 
     fn supports_scheduler_visible_prompt_chunks(&self, seq: &Sequence) -> bool {
         self.scheduler_visible_prompt_chunks
-            && !seq.return_raw_logits
+            && !seq.wants_all_prompt_positions()
             && !seq.is_xlora()
             && matches!(seq.sequence_stepping_type(), SeqStepType::PromptAndDecode)
             && !seq.has_suffix_only_prefill_toks()
@@ -375,7 +375,7 @@ impl PagedAttentionScheduler {
             let require_uniform_length = self.requires_uniform_prompt_batch
                 || candidates.iter().any(|seq| {
                     let seq = get_mut_arcmutex!(seq);
-                    seq.return_raw_logits || seq.prefix_cache_len() > 0
+                    seq.wants_all_prompt_positions() || seq.prefix_cache_len() > 0
                 });
             let scheduled = self.bucket_and_preempt_sequences(
                 candidates,
@@ -778,6 +778,7 @@ impl PagedAttentionScheduler {
                     0
                 },
                 seq_guard.token_offset(),
+                seq_guard.return_hidden_states,
             );
             drop(seq_guard);
 
@@ -1731,6 +1732,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             vec![],
@@ -2690,6 +2692,41 @@ mod tests {
 
         assert_eq!(scheduled.len(), 1);
         assert_eq!(scheduler.waiting.len(), 1);
+    }
+
+    #[test]
+    fn hidden_state_prompts_never_share_a_bucket_with_normal_prompts() {
+        let mut scheduler = test_scheduler();
+        let normal = test_sequence(0, 4);
+        let hidden = test_sequence(1, 4);
+        get_mut_arcmutex!(hidden).return_hidden_states = true;
+        let prompts = VecDeque::from([normal, hidden]);
+
+        for seq in &prompts {
+            get_mut_arcmutex!(seq).set_state(SequenceState::RunningPrompt);
+        }
+        let scheduled = scheduler.bucket_and_preempt_sequences(prompts, BatchKind::Prompt, true);
+
+        assert_eq!(scheduled.len(), 1);
+        assert_eq!(scheduler.waiting.len(), 1);
+    }
+
+    #[test]
+    fn hidden_state_prompts_batch_with_each_other() {
+        let mut scheduler = test_scheduler();
+        let first = test_sequence(0, 4);
+        let second = test_sequence(1, 4);
+        get_mut_arcmutex!(first).return_hidden_states = true;
+        get_mut_arcmutex!(second).return_hidden_states = true;
+        let prompts = VecDeque::from([first, second]);
+
+        for seq in &prompts {
+            get_mut_arcmutex!(seq).set_state(SequenceState::RunningPrompt);
+        }
+        let scheduled = scheduler.bucket_and_preempt_sequences(prompts, BatchKind::Prompt, true);
+
+        assert_eq!(scheduled.len(), 2);
+        assert!(scheduler.waiting.is_empty());
     }
 
     #[test]

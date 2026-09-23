@@ -1920,6 +1920,9 @@ impl TextModel {
         };
         xs = ctx.lm_head(&*self.lm_head, &xs)?;
 
+        if ctx.returns_hidden_states() {
+            return Ok(xs);
+        }
         if let Some(final_logit_softcapping) = self.final_logit_softcapping {
             let dtype = xs.dtype();
             xs = softcap(&xs, final_logit_softcapping as f32)?.to_dtype(dtype)?;

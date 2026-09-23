@@ -5,7 +5,7 @@ use super::isq::{
 use super::{
     get_model_paths, AnyMoePipelineMixin, CacheManagerMixin, EitherCache, ForwardInputsResult,
     GeneralMetadata, IsqPipelineMixin, Loader, MetadataMixin, ModelCategory, ModelKind, ModelPaths,
-    PreProcessingMixin, TokenSource,
+    PreProcessingMixin, PrefillOutputMode, TokenSource,
 };
 use crate::attention::ATTENTION_CHUNK_SIZE;
 use crate::device_map::{self, DeviceMapper};
@@ -814,7 +814,7 @@ impl Pipeline for EmbeddingPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        _return_raw_logits: bool,
+        _mode: PrefillOutputMode,
     ) -> candle_core::Result<ForwardInputsResult> {
         let ModelInputs {
             input_ids,

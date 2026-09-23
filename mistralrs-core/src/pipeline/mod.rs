@@ -799,6 +799,7 @@ pub(crate) struct ModelForwardContext<'a> {
     recurrent_metadata: Option<RecurrentMetadata>,
     recurrent_batch_kind: Option<RecurrentBatchKind>,
     requires_full_prefill_queries: bool,
+    return_hidden_states: bool,
 }
 
 #[allow(dead_code)]
@@ -820,6 +821,7 @@ impl<'a> ModelForwardContext<'a> {
             recurrent_metadata: None,
             recurrent_batch_kind: None,
             requires_full_prefill_queries: false,
+            return_hidden_states: false,
         }
     }
 
@@ -840,7 +842,17 @@ impl<'a> ModelForwardContext<'a> {
             recurrent_metadata: None,
             recurrent_batch_kind: None,
             requires_full_prefill_queries: false,
+            return_hidden_states: false,
         }
+    }
+
+    pub(crate) fn with_hidden_states(mut self, return_hidden_states: bool) -> Self {
+        self.return_hidden_states = return_hidden_states;
+        self
+    }
+
+    pub(crate) fn returns_hidden_states(&self) -> bool {
+        self.return_hidden_states
     }
 
     pub(crate) fn with_recurrent_batch_kind(
@@ -997,6 +1009,9 @@ impl<'a> ModelForwardContext<'a> {
         head: &dyn QuantMethod,
         xs: &Tensor,
     ) -> candle_core::Result<Tensor> {
+        if self.return_hidden_states {
+            return Ok(xs.clone());
+        }
         if self.needs_logits() {
             return head.forward(xs);
         }
@@ -1560,10 +1575,26 @@ pub enum CacheBackendMetadata {
     },
 }
 
+/// Selects which auxiliary tensor a prefill forward returns to the sequence.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct PrefillOutputMode {
+    pub raw_logits: bool,
+    pub hidden_states: bool,
+}
+
+impl PrefillOutputMode {
+    pub fn all_positions(&self) -> bool {
+        self.raw_logits || self.hidden_states
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ForwardInputsResult {
     RawLogits {
         logits: Tensor,
+    },
+    HiddenStates {
+        hidden: Tensor,
     },
     Embeddings {
         embeddings: Tensor,
@@ -1597,6 +1628,9 @@ impl ForwardInputsResult {
             Self::RawLogits { logits } => Ok(Self::RawLogits {
                 logits: logits.i(bs_idx)?,
             }),
+            Self::HiddenStates { hidden } => Ok(Self::HiddenStates {
+                hidden: hidden.i(bs_idx)?,
+            }),
             Self::Image { images } => Ok(Self::Image {
                 images: vec![images[bs_idx].clone()],
             }),
@@ -1626,6 +1660,9 @@ impl ForwardInputsResult {
             }),
             Self::RawLogits { logits } => Ok(Self::RawLogits {
                 logits: logits.to_device(device)?,
+            }),
+            Self::HiddenStates { hidden } => Ok(Self::HiddenStates {
+                hidden: hidden.to_device(device)?,
             }),
             Self::Embeddings { embeddings } => Ok(Self::Embeddings {
                 embeddings: embeddings.to_device(device)?,
@@ -1704,10 +1741,10 @@ fn should_try_speculative_sampling(
     is_prompt: bool,
     scheduler_visible_prompt_step: bool,
     is_final_prompt_chunk: bool,
-    return_raw_logits: bool,
+    all_positions: bool,
     supports_prompt_bootstrap: bool,
 ) -> bool {
-    !return_raw_logits
+    !all_positions
         && (!is_prompt || supports_prompt_bootstrap)
         && should_sample_step(
             is_prompt,
@@ -1782,16 +1819,16 @@ pub trait Pipeline:
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardInputsResult, candle_core::Error>;
 
     #[doc(hidden)]
     fn forward_step(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardStepResult, candle_core::Error> {
-        self.forward_inputs(inputs, return_raw_logits)
+        self.forward_inputs(inputs, mode)
             .map(ForwardStepResult::eager)
     }
 
@@ -1972,7 +2009,7 @@ pub trait Pipeline:
         &mut self,
         input_seqs: &mut [&mut Sequence],
         is_prompt: bool,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
         prefix_cacher: &mut PrefixCacheManagerV2,
         disable_eos_stop: bool,
         rng: Arc<std::sync::Mutex<Isaac64Rng>>,
@@ -1983,7 +2020,7 @@ pub trait Pipeline:
             .submit_step(
                 input_seqs,
                 is_prompt,
-                return_raw_logits,
+                mode,
                 prefix_cacher,
                 disable_eos_stop,
                 rng,
@@ -2003,7 +2040,7 @@ pub trait Pipeline:
         &mut self,
         input_seqs: &mut [&mut Sequence],
         is_prompt: bool,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
         prefix_cacher: &mut PrefixCacheManagerV2,
         disable_eos_stop: bool,
         rng: Arc<std::sync::Mutex<Isaac64Rng>>,
@@ -2013,7 +2050,7 @@ pub trait Pipeline:
     ) -> Result<StepSubmission, candle_core::Error> {
         match backend_metadata {
             CacheBackendMetadata::DefaultInstructions { pre_op, post_op } => {
-                if !is_prompt && !return_raw_logits {
+                if !is_prompt && !mode.all_positions() {
                     crate::speculative::driver::clear_staged_speculative_tokens(input_seqs);
                 }
 
@@ -2026,7 +2063,7 @@ pub trait Pipeline:
                         &self.device(),
                         self.get_metadata().no_kv_cache,
                         None,
-                        return_raw_logits,
+                        mode.all_positions(),
                         self.get_metadata().sliding_window,
                         self.get_input_processor_config(),
                         None,
@@ -2062,14 +2099,14 @@ pub trait Pipeline:
                     }
 
                     let preserve_causal_generation = input_seqs.len() > 1
-                        && !return_raw_logits
+                        && !mode.all_positions()
                         && self.device().is_cuda()
                         && ((self.supports_batched_cuda_sampling()
                             && sampling::can_sample_batch_cuda(input_seqs))
                             || crate::speculative::verifier::can_batch_device_verify(input_seqs));
                     let start = Instant::now();
                     let raw_logits = self
-                        .forward_inputs(inputs, return_raw_logits)?
+                        .forward_inputs(inputs, mode)?
                         .into_cpu_for_batch(input_seqs.len(), preserve_causal_generation)?;
                     let end = Instant::now();
                     exec_duration += end.duration_since(start);
@@ -2078,6 +2115,9 @@ pub trait Pipeline:
                         if let ForwardInputsResult::RawLogits { logits } = &raw_logits {
                             raw_out_logits[seq_idx][i] =
                                 Some(logits.i(logit_idx)?.to_device(&Device::Cpu)?);
+                        } else if let ForwardInputsResult::HiddenStates { hidden } = &raw_logits {
+                            raw_out_logits[seq_idx][i] =
+                                Some(hidden.i(logit_idx)?.to_device(&Device::Cpu)?);
                         } else if let ForwardInputsResult::Embeddings { embeddings } = &raw_logits {
                             embedding_logits[seq_idx] =
                                 Some(embeddings.i(logit_idx)?.to_device(&Device::Cpu)?);
@@ -2104,14 +2144,34 @@ pub trait Pipeline:
 
                 if raw_out_logits[0][0].is_some() {
                     let start = Instant::now();
-                    response::send_raw_responses(
-                        input_seqs,
-                        raw_out_logits
-                            .into_iter()
-                            .map(|raw| raw.into_iter().flatten().collect::<Vec<_>>())
-                            .collect(),
-                    )
-                    .await?;
+                    if mode.hidden_states {
+                        response::send_hidden_state_responses(
+                            self,
+                            prefix_cacher,
+                            input_seqs,
+                            raw_out_logits
+                                .into_iter()
+                                .map(|raw| {
+                                    let chunks = raw.into_iter().flatten().collect::<Vec<_>>();
+                                    if chunks.len() == 1 {
+                                        Ok(chunks.into_iter().next().unwrap())
+                                    } else {
+                                        Tensor::cat(&chunks, 0)
+                                    }
+                                })
+                                .collect::<candle_core::Result<Vec<_>>>()?,
+                        )
+                        .await?;
+                    } else {
+                        response::send_raw_responses(
+                            input_seqs,
+                            raw_out_logits
+                                .into_iter()
+                                .map(|raw| raw.into_iter().flatten().collect::<Vec<_>>())
+                                .collect(),
+                        )
+                        .await?;
+                    }
                     let end = Instant::now();
                     exec_duration += end.duration_since(start);
 
@@ -2147,6 +2207,7 @@ pub trait Pipeline:
 
                 match &logits[0] {
                     ForwardInputsResult::RawLogits { .. }
+                    | ForwardInputsResult::HiddenStates { .. }
                     | ForwardInputsResult::Embeddings { .. } => unreachable!(),
                     ForwardInputsResult::CausalGeneration { .. } => {
                         let logits = logits
@@ -2163,7 +2224,7 @@ pub trait Pipeline:
                             })
                             .collect::<Vec<_>>();
                         if is_prompt
-                            || return_raw_logits
+                            || mode.all_positions()
                             || !self
                                 .try_sample_speculative_causal_gen(
                                     input_seqs,
@@ -2297,7 +2358,7 @@ pub trait Pipeline:
                     scheduler_visible_prompt_step && metadata.is_final_prompt_chunk;
                 let chunk_size = if !scheduler_visible_prompt_step
                     && is_prompt
-                    && !return_raw_logits
+                    && !mode.all_positions()
                     && !self.get_metadata().is_xlora
                     && self.device().is_cuda()
                 {
@@ -2370,7 +2431,7 @@ pub trait Pipeline:
                         .is_some_and(|plans| plans.iter().any(|plan| plan.len() > 1));
                 let cuda_decode_lookahead = lookahead.is_enabled()
                     && !is_prompt
-                    && !return_raw_logits
+                    && !mode.all_positions()
                     && self.device().is_cuda()
                     && self.supports_batched_cuda_sampling()
                     && sampling::can_submit_cuda_token_batch_seqs(input_seqs)
@@ -2455,7 +2516,7 @@ pub trait Pipeline:
                             chunk_metadata.prompt_chunk_attention_policy = attention_policy;
                             chunk_metadata.is_final_prompt_chunk = is_final_prompt_chunk;
                             chunk_metadata.needs_logits =
-                                is_final_prompt_chunk || return_raw_logits;
+                                is_final_prompt_chunk || mode.all_positions();
                             let mut active_input_seqs = input_seqs
                                 .iter_mut()
                                 .enumerate()
@@ -2473,7 +2534,7 @@ pub trait Pipeline:
                                     &self.device(),
                                     self.get_metadata().no_kv_cache,
                                     None,
-                                    return_raw_logits,
+                                    mode.all_positions(),
                                     self.get_metadata().sliding_window,
                                     self.get_input_processor_config(),
                                     Some(chunk_metadata),
@@ -2536,7 +2597,7 @@ pub trait Pipeline:
                                 &self.device(),
                                 self.get_metadata().no_kv_cache,
                                 None,
-                                return_raw_logits,
+                                mode.all_positions(),
                                 self.get_metadata().sliding_window,
                                 self.get_input_processor_config(),
                                 Some(metadata),
@@ -2565,7 +2626,7 @@ pub trait Pipeline:
 
                         let preserve_causal_generation = (input_seqs.len() > 1
                             || cuda_decode_lookahead)
-                            && !return_raw_logits
+                            && !mode.all_positions()
                             && self.device().is_cuda()
                             && ((self.supports_batched_cuda_sampling()
                                 && sampling::can_sample_batch_cuda(input_seqs))
@@ -2597,16 +2658,12 @@ pub trait Pipeline:
                         let start = Instant::now();
                         #[cfg(feature = "cuda")]
                         let forward = if cuda_decode_lookahead {
-                            self.forward_step(inputs, return_raw_logits)?
+                            self.forward_step(inputs, mode)?
                         } else {
-                            ForwardStepResult::eager(
-                                self.forward_inputs(inputs, return_raw_logits)?,
-                            )
+                            ForwardStepResult::eager(self.forward_inputs(inputs, mode)?)
                         };
                         #[cfg(not(feature = "cuda"))]
-                        let forward = ForwardStepResult::eager(
-                            self.forward_inputs(inputs, return_raw_logits)?,
-                        );
+                        let forward = ForwardStepResult::eager(self.forward_inputs(inputs, mode)?);
                         #[cfg(feature = "cuda")]
                         let mut cuda_decode = forward.cuda_decode;
                         let raw_logits = forward
@@ -2659,6 +2716,10 @@ pub trait Pipeline:
                             if let ForwardInputsResult::RawLogits { logits } = &raw_logits {
                                 raw_out_logits[seq_idx][i] =
                                     Some(logits.i(logit_idx)?.to_device(&Device::Cpu)?);
+                            } else if let ForwardInputsResult::HiddenStates { hidden } = &raw_logits
+                            {
+                                raw_out_logits[seq_idx][i] =
+                                    Some(hidden.i(logit_idx)?.to_device(&Device::Cpu)?);
                             } else if let ForwardInputsResult::Embeddings { embeddings } =
                                 &raw_logits
                             {
@@ -2680,14 +2741,34 @@ pub trait Pipeline:
 
                 if raw_out_logits[0][0].is_some() {
                     let start = Instant::now();
-                    response::send_raw_responses(
-                        input_seqs,
-                        raw_out_logits
-                            .into_iter()
-                            .map(|raw| raw.into_iter().flatten().collect::<Vec<_>>())
-                            .collect(),
-                    )
-                    .await?;
+                    if mode.hidden_states {
+                        response::send_hidden_state_responses(
+                            self,
+                            prefix_cacher,
+                            input_seqs,
+                            raw_out_logits
+                                .into_iter()
+                                .map(|raw| {
+                                    let chunks = raw.into_iter().flatten().collect::<Vec<_>>();
+                                    if chunks.len() == 1 {
+                                        Ok(chunks.into_iter().next().unwrap())
+                                    } else {
+                                        Tensor::cat(&chunks, 0)
+                                    }
+                                })
+                                .collect::<candle_core::Result<Vec<_>>>()?,
+                        )
+                        .await?;
+                    } else {
+                        response::send_raw_responses(
+                            input_seqs,
+                            raw_out_logits
+                                .into_iter()
+                                .map(|raw| raw.into_iter().flatten().collect::<Vec<_>>())
+                                .collect(),
+                        )
+                        .await?;
+                    }
                     let end = Instant::now();
                     exec_duration += end.duration_since(start);
 
@@ -2791,6 +2872,7 @@ pub trait Pipeline:
                     .collect::<Vec<_>>();
                 match &logits[0] {
                     ForwardInputsResult::RawLogits { .. }
+                    | ForwardInputsResult::HiddenStates { .. }
                     | ForwardInputsResult::Embeddings { .. } => unreachable!(),
                     ForwardInputsResult::CausalGeneration { .. } => {
                         let logits = logits
@@ -2808,7 +2890,7 @@ pub trait Pipeline:
                             is_prompt,
                             scheduler_visible_prompt_step,
                             scheduler_visible_prompt_is_final,
-                            return_raw_logits,
+                            mode.all_positions(),
                             is_prompt && self.supports_speculative_prompt_bootstrap(),
                         ) || !self
                             .try_sample_speculative_causal_gen(

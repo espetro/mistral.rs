@@ -3,7 +3,7 @@ use super::{
     AnyMoePipelineMixin, Cache, CacheManagerMixin, DiffusionLoaderType, DiffusionModel,
     DiffusionModelLoader, EitherCache, FluxLoader, ForwardInputsResult, GeneralMetadata,
     IsqPipelineMixin, Loader, MetadataMixin, ModelCategory, ModelKind, ModelPaths,
-    PreProcessingMixin, Processor, TokenSource,
+    PreProcessingMixin, PrefillOutputMode, Processor, TokenSource,
 };
 use crate::device_map::{self, DeviceMapper};
 use crate::diffusion_models::processor::{DiffusionProcessor, ModelInputs};
@@ -324,9 +324,9 @@ impl Pipeline for DiffusionPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> candle_core::Result<ForwardInputsResult> {
-        assert!(!return_raw_logits);
+        assert!(!mode.raw_logits);
 
         let ModelInputs { prompts, params } = *inputs.downcast().expect("Downcast failed.");
         let img = self.model.forward(prompts, params)?.to_dtype(DType::U8)?;

@@ -787,6 +787,7 @@ impl Engine {
                 image_gen_save_file.clone(),
                 seq_preallocated_cache,
                 request.return_raw_logits,
+                request.return_hidden_states,
                 request.sampling_params.ignore_eos,
                 eos_toks,
                 choice_seed(request.seed, response_index),

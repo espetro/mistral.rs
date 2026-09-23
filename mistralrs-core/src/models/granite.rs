@@ -2336,7 +2336,9 @@ impl GraniteMoeHybrid {
         let mut logits = ctx.lm_head(&*self.lm_head, &x)?;
 
         // Scale logits
-        logits = scale_tensor(logits, self.logits_scaling)?;
+        if !ctx.returns_hidden_states() {
+            logits = scale_tensor(logits, self.logits_scaling)?;
+        }
 
         Ok(logits)
     }

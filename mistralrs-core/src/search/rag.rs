@@ -9,7 +9,7 @@ use mistralrs_quant::log::once_log_info;
 use tokenizers::Tokenizer;
 use tokio::sync::Mutex as TokioMutex;
 
-use crate::pipeline::ForwardInputsResult;
+use crate::pipeline::{ForwardInputsResult, PrefillOutputMode};
 use crate::{
     embedding_models::inputs_processor::{make_prompt_chunk, ModelInputs},
     engine::SearchEmbeddingModel,
@@ -144,7 +144,7 @@ impl SearchPipeline {
             });
             let mut pipeline = get_mut_arcmutex!(self.model);
             let ForwardInputsResult::Embeddings { embeddings } =
-                pipeline.forward_inputs(inputs, false)?
+                pipeline.forward_inputs(inputs, PrefillOutputMode::default())?
             else {
                 anyhow::bail!("Embedding pipeline returned non-embedding output");
             };

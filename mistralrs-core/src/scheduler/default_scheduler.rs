@@ -71,7 +71,7 @@ pub trait BucketingManager<Backer: FcfsBacker>: Send + Sync {
 }
 
 // (cache length, media bucket, sequence offset, raw request)
-type BucketKey = (usize, u8, usize, Option<usize>);
+type BucketKey = (usize, u8, usize, Option<usize>, bool);
 
 struct FixedBucketingManager;
 
@@ -101,6 +101,7 @@ impl<Backer: FcfsBacker> BucketingManager<Backer> for FixedBucketingManager {
                 media,
                 seq.token_offset(),
                 seq.return_raw_logits.then_some(*seq.id()),
+                seq.return_hidden_states,
             );
             match seq_buckets.get_mut(&key) {
                 Some(bucket) => {
@@ -129,7 +130,7 @@ impl<Backer: FcfsBacker> BucketingManager<Backer> for FixedBucketingManager {
             // Allow the min seqs to catch up.
             let min = *seq_buckets
                 .keys()
-                .min_by_key(|(len, _, _, _)| *len)
+                .min_by_key(|(len, _, _, _, _)| *len)
                 .expect("No sequence buckets.");
             let len = if !discrete {
                 seq_priorities
@@ -429,6 +430,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             vec![],

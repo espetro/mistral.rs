@@ -8,8 +8,8 @@ use super::{
     DecodeGraphPrecaptureCtx, EitherCache, ForwardInputsResult, ForwardStepResult, Gemma3Loader,
     GeneralMetadata, IsqPipelineMixin, Loader, MetadataMixin, MiniCpmOLoader, ModelCategory,
     ModelKind, ModelPaths, MultimodalModel, MultimodalModelLoader, MultimodalPromptPrefixer,
-    Phi4MMLoader, PreProcessingMixin, Processor, Qwen2VLLoader, Qwen3VLLoader, Qwen3VLMoELoader,
-    Qwen3_5Loader, Qwen3_5MoeLoader, TokenSource, VLlama4Loader, VLlamaLoader,
+    Phi4MMLoader, PreProcessingMixin, PrefillOutputMode, Processor, Qwen2VLLoader, Qwen3VLLoader,
+    Qwen3VLMoELoader, Qwen3_5Loader, Qwen3_5MoeLoader, TokenSource, VLlama4Loader, VLlamaLoader,
 };
 use super::{
     DiffusionGemmaLoader, Gemma3nLoader, Gemma4Loader, Idefics2Loader, Idefics3Loader, LLaVALoader,
@@ -2616,15 +2616,15 @@ impl Pipeline for MultimodalPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> candle_core::Result<ForwardInputsResult> {
-        Ok(self.forward_step(inputs, return_raw_logits)?.output)
+        Ok(self.forward_step(inputs, mode)?.output)
     }
 
     fn forward_step(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> candle_core::Result<ForwardStepResult> {
         let ModelInputs {
             input_ids,
@@ -2675,7 +2675,7 @@ impl Pipeline for MultimodalPipeline {
         #[cfg(feature = "cuda")]
         let mut cuda_graph_eager_fallback = None;
         #[cfg(feature = "cuda")]
-        if lora_execution.is_none() && !return_raw_logits && pixel_values.is_none() {
+        if lora_execution.is_none() && !mode.all_positions() && pixel_values.is_none() {
             match self.try_cuda_decode_graph_forward(CudaDecodeGraphForwardInput {
                 input_ids: &input_ids,
                 seqlen_offsets: &seqlen_offsets,
@@ -2724,7 +2724,8 @@ impl Pipeline for MultimodalPipeline {
             &flash_meta,
         )
         .with_recurrent_batch_kind(recurrent_batch_kind)
-        .with_recurrent_metadata(self.recurrent_metadata(recurrent_batch_kind));
+        .with_recurrent_metadata(self.recurrent_metadata(recurrent_batch_kind))
+        .with_hidden_states(mode.hidden_states);
         let eager_result = mistralrs_quant::with_lora_execution(lora_execution, || {
             self.model
                 .forward(&input_ids, pixel_values, model_specific_args, &mut ctx)
@@ -2736,7 +2737,7 @@ impl Pipeline for MultimodalPipeline {
             }
         }
         let logits = eager_result?;
-        if self.model.is_block_diffusion() && !return_raw_logits {
+        if self.model.is_block_diffusion() && !mode.raw_logits {
             return Ok(ForwardStepResult::eager(
                 ForwardInputsResult::BlockGeneration {
                     token_blocks: logits.to_dtype(candle_core::DType::U32)?.to_vec2::<u32>()?,
@@ -2744,7 +2745,9 @@ impl Pipeline for MultimodalPipeline {
                 },
             ));
         }
-        let output = if return_raw_logits {
+        let output = if mode.hidden_states {
+            ForwardInputsResult::HiddenStates { hidden: logits }
+        } else if mode.raw_logits {
             ForwardInputsResult::RawLogits { logits }
         } else {
             ForwardInputsResult::CausalGeneration { logits }

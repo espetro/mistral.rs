@@ -1424,6 +1424,7 @@ impl Engine {
                             };
 
                             let return_raw_logits = scheduled.completion[0].return_raw_logits;
+                            let return_hidden_states = scheduled.completion[0].return_hidden_states;
                             assert!(
                                 scheduled
                                     .completion
@@ -1431,12 +1432,21 @@ impl Engine {
                                     .all(|seq| seq.return_raw_logits == return_raw_logits),
                                 "All sequences must either return raw logits, or not."
                             );
+                            assert!(
+                                scheduled.completion.iter().all(|seq| {
+                                    seq.return_hidden_states == return_hidden_states
+                                }),
+                                "All sequences must either return hidden states, or not."
+                            );
 
                             pipeline
                                 .step(
                                     &mut scheduled.completion,
                                     false,
-                                    return_raw_logits,
+                                    crate::pipeline::PrefillOutputMode {
+                                        raw_logits: return_raw_logits,
+                                        hidden_states: return_hidden_states,
+                                    },
                                     &mut *get_mut_arcmutex!(self.prefix_cacher),
                                     self.disable_eos_stop,
                                     rng.clone(),
@@ -1483,12 +1493,20 @@ impl Engine {
                             };
 
                             let return_raw_logits = scheduled.prompt[0].return_raw_logits;
+                            let return_hidden_states = scheduled.prompt[0].return_hidden_states;
                             assert!(
                                 scheduled
                                     .prompt
                                     .iter()
                                     .all(|seq| seq.return_raw_logits == return_raw_logits),
                                 "All sequences must either return raw logits, or not."
+                            );
+                            assert!(
+                                scheduled
+                                    .prompt
+                                    .iter()
+                                    .all(|seq| seq.return_hidden_states == return_hidden_states),
+                                "All sequences must either return hidden states, or not."
                             );
 
                             // This comes from prefix caching
@@ -1506,7 +1524,10 @@ impl Engine {
                                 .step(
                                     &mut scheduled.prompt,
                                     true,
-                                    return_raw_logits,
+                                    crate::pipeline::PrefillOutputMode {
+                                        raw_logits: return_raw_logits,
+                                        hidden_states: return_hidden_states,
+                                    },
                                     &mut *get_mut_arcmutex!(self.prefix_cacher),
                                     self.disable_eos_stop,
                                     rng.clone(),
@@ -1908,22 +1929,32 @@ impl Engine {
                                     enable_packed_prefill: pipeline.supports_packed_prefill(),
                                     is_final_prompt_chunk,
                                     needs_logits: is_final_prompt_chunk
-                                        || guards_mut[0].return_raw_logits,
+                                        || guards_mut[0].wants_all_prompt_positions(),
                                 };
 
                                 let return_raw_logits = guards_mut[0].return_raw_logits;
+                                let return_hidden_states = guards_mut[0].return_hidden_states;
                                 assert!(
                                     guards_mut
                                         .iter()
                                         .all(|seq| seq.return_raw_logits == return_raw_logits),
                                     "All sequences must either return raw logits, or not."
                                 );
+                                assert!(
+                                    guards_mut.iter().all(|seq| {
+                                        seq.return_hidden_states == return_hidden_states
+                                    }),
+                                    "All sequences must either return hidden states, or not."
+                                );
 
                                 pipeline
                                     .submit_step(
                                         &mut guards_mut,
                                         is_prompt,
-                                        return_raw_logits,
+                                        crate::pipeline::PrefillOutputMode {
+                                            raw_logits: return_raw_logits,
+                                            hidden_states: return_hidden_states,
+                                        },
                                         &mut *get_mut_arcmutex!(self.prefix_cacher),
                                         self.disable_eos_stop,
                                         rng.clone(),

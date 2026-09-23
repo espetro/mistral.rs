@@ -145,8 +145,8 @@ fn streaming_response_logprob(emission: &StreamingEmission) -> crate::ResponseLo
     }
 }
 
-pub(crate) fn cache_finished_sequence(
-    this: &dyn Pipeline,
+pub(crate) fn cache_finished_sequence<P: Pipeline + ?Sized>(
+    this: &P,
     prefix_cacher: &mut PrefixCacheManagerV2,
     seq: &mut Sequence,
 ) -> Result<()> {
@@ -185,8 +185,8 @@ pub(crate) fn cache_finished_sequence(
     Ok(())
 }
 
-pub(crate) async fn finish_or_add_toks_to_seq(
-    this: &dyn Pipeline,
+pub(crate) async fn finish_or_add_toks_to_seq<P: Pipeline + ?Sized>(
+    this: &P,
     prefix_cacher: &mut PrefixCacheManagerV2,
     seq: &mut Sequence,
     logprobs: Logprobs,
@@ -1603,6 +1603,7 @@ mod tests {
             None,
             None,
             false,
+            false,
             ignore_eos,
             vec![],
             None,
@@ -1656,6 +1657,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             vec![],
