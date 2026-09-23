@@ -3236,6 +3236,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "kev-rs"
+version = "0.9.3"
+dependencies = [
+ "anyhow",
+ "axum",
+ "candle-core",
+ "candle-nn",
+ "clap",
+ "futures",
+ "indexmap 2.13.0",
+ "mistralrs",
+ "mistralrs-core",
+ "rand 0.9.4",
+ "regex",
+ "safetensors 0.8.0",
+ "serde",
+ "serde_json",
+ "tokenizers 0.21.4",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid 1.19.0",
+]
+
+[[package]]
 name = "landlock"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
