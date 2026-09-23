@@ -91,7 +91,7 @@ detect_os() {
 # Minimum required Rust version
 REQUIRED_RUST_VERSION="1.94"
 RUSTUP_INSTALL_CMD="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-MISTRALRS_REPO_URL="https://github.com/EricLBuehler/mistral.rs"
+MISTRALRS_REPO_URL="${MISTRALRS_REPO_URL:-https://github.com/espetro/mistral.rs}"
 MISTRALRS_BRANCH="master"
 MISTRALRS_CLI_PACKAGE="mistralrs-cli"
 
@@ -484,9 +484,9 @@ PREBUILT_CUDA_SMS_AARCH64="90 100 121"
 PREBUILT_CUDA_VARIANTS="133:1303 132:1302 131:1301 130:1300 129:1209 128:1208"
 # MISTRALRS_INSTALL_TAG pins a specific release (e.g. v0.8.9); default is the latest stable release.
 if [ -n "$MISTRALRS_INSTALL_TAG" ]; then
-    RELEASE_BASE="https://github.com/EricLBuehler/mistral.rs/releases/download/$MISTRALRS_INSTALL_TAG"
+    RELEASE_BASE="$MISTRALRS_REPO_URL/releases/download/$MISTRALRS_INSTALL_TAG"
 else
-    RELEASE_BASE="https://github.com/EricLBuehler/mistral.rs/releases/latest/download"
+    RELEASE_BASE="$MISTRALRS_REPO_URL/releases/latest/download"
 fi
 PREBUILT_DIR="$HOME/.mistralrs"
 BIN_DIR="$HOME/.local/bin"
@@ -621,6 +621,10 @@ install_prebuilt() {
     mkdir -p "$BIN_DIR"
     # Symlink onto PATH; $ORIGIN/lib resolves through the symlink to the real lib dir.
     ln -sf "$PREBUILT_DIR/mistralrs" "$BIN_DIR/mistralrs"
+    if [ -f "$PREBUILT_DIR/kev-rs" ]; then
+        chmod +x "$PREBUILT_DIR/kev-rs" 2>/dev/null || true
+        ln -sf "$PREBUILT_DIR/kev-rs" "$BIN_DIR/kev-rs"
+    fi
     if ! "$PREBUILT_DIR/mistralrs" --version >/dev/null 2>&1; then
         warn "Prebuilt binary did not run; falling back to source build."
         return 1
@@ -891,6 +895,10 @@ print_success() {
         printf "  binary      %s\n" "$(tildify "$PREBUILT_DIR/mistralrs")"
     fi
     printf "  on PATH     %s -> %s\n" "$(tildify "$BIN_DIR/mistralrs")" "$(tildify "$PREBUILT_DIR/mistralrs")"
+    if [ -f "$PREBUILT_DIR/kev-rs" ]; then
+        printf "  kev-rs      %s\n" "$(tildify "$PREBUILT_DIR/kev-rs")"
+        printf "  on PATH     %s -> %s\n" "$(tildify "$BIN_DIR/kev-rs")" "$(tildify "$PREBUILT_DIR/kev-rs")"
+    fi
     echo ""
     printf "${BOLD}Quick Start${NC}\n"
     echo "==========="
@@ -905,7 +913,7 @@ print_success() {
     echo "  mistralrs serve --agent -m google/gemma-4-E4B-it"
     echo ""
     echo "Docs:     https://docs.mistralrs.dev/"
-    echo "Source:   https://github.com/EricLBuehler/mistral.rs"
+    echo "Source:   $MISTRALRS_REPO_URL"
     echo ""
     if [ -n "$FFMPEG_SKIPPED" ]; then
         printf "${YELLOW}Note:${NC} FFmpeg was not installed; video input will be unavailable. Install it later to enable video.\n\n"

@@ -255,9 +255,19 @@ def main() -> int:
 
     with open(WORKFLOW, encoding="utf-8") as workflow_file:
         jobs = yaml.safe_load(workflow_file)["jobs"]
-    cuda_rows = jobs["linux-cuda"]["strategy"]["matrix"]["include"]
-    docker_rows = jobs["docker-cuda"]["strategy"]["matrix"]["include"]
-    manifest_rows = jobs["docker-cuda-manifest"]["strategy"]["matrix"]["include"]
+    def matrix_rows(job: str) -> list[dict[str, str]]:
+        # Jobs absent from the workflow (e.g. CUDA legs on forks without GPU runners)
+        # contribute nothing to the artifact contract.
+        return (
+            jobs.get(job, {})
+            .get("strategy", {})
+            .get("matrix", {})
+            .get("include", [])
+        )
+
+    cuda_rows = matrix_rows("linux-cuda")
+    docker_rows = matrix_rows("docker-cuda")
+    manifest_rows = matrix_rows("docker-cuda-manifest")
 
     output = subprocess.run(
         ["gh", "release", "view", tag, "-R", repo, "--json", "assets"],
