@@ -89,7 +89,7 @@ def main():
         "head_dim": meta.head_dim,
         "temperature": temperature,
         "hidden_size": hidden_size,
-        "dtype": a.dtype,
+        "dtype": {"fp32": "f32", "bf16": "bf16", "fp16": "f16"}[a.dtype],
         "special_tokens": {name: tok.convert_tokens_to_ids(name) for name in SPECIAL},
         "pad_id": pad_id(tok),
         "option_isolation": meta.option_isolation,
