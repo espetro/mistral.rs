@@ -295,6 +295,8 @@ def main() -> int:
             verified += 1
         else:
             missing.append(f"asset: {tarball}")
+        if row.get("skip_wheel"):
+            continue
         if has_cuda_wheel(assets, row, version):
             verified += 1
         else:
@@ -316,7 +318,10 @@ def main() -> int:
         else:
             verified += 1
 
-    expected = len(FIXED_ASSETS) + 2 * len(cuda_rows) + len(targets)
+    cuda_wheel_rows = [row for row in cuda_rows if not row.get("skip_wheel")]
+    expected = (
+        len(FIXED_ASSETS) + len(cuda_rows) + len(cuda_wheel_rows) + len(targets)
+    )
     if not prerelease:
         expected += len(PYPI_PLATFORMS)
         url = f"https://pypi.org/pypi/mistralrs/{version}/json"

@@ -298,6 +298,90 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+  # FORK-ONLY (espetro/mistral.rs): not intended for upstream. Upstream compiles CUDA on paid
+  # Namespace GPU runners with persistent caches and a 40-leg sm x toolkit matrix. Forks have
+  # neither, so this leg mirrors espetro/llama.cpp: a GitHub-hosted runner plus the nvidia/cuda
+  # devel container, compiling without a GPU. Kept small enough for the free tier (4 vCPU, 6h):
+  # no flash-attn (~90 min of ptxas per hdim), no nccl, no cutile, no wheels, consumer SMs only.
+  # Asset names follow the upstream contract so install.sh picks them up unchanged.
+  linux-cuda:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { sm: "86", triple: x86_64-unknown-linux-gnu, cuda: "12.8.1", cuda_asset: "128", features: "mistralrs-cli/cuda,kev-rs/cuda", skip_wheel: true }
+          - { sm: "89", triple: x86_64-unknown-linux-gnu, cuda: "12.8.1", cuda_asset: "128", features: "mistralrs-cli/cuda,kev-rs/cuda", skip_wheel: true }
+          - { sm: "120", triple: x86_64-unknown-linux-gnu, cuda: "12.8.1", cuda_asset: "128", features: "mistralrs-cli/cuda,kev-rs/cuda", skip_wheel: true }
+    container:
+      image: docker.io/nvidia/cuda:${{ matrix.cuda }}-devel-ubuntu22.04
+    env:
+      CUDA_COMPUTE_CAP: ${{ matrix.sm }}
+      CUDA_TOOLKIT_PATH: /usr/local/cuda
+      CUDAFORGE_THREADS: "2"
+      CARGO_BUILD_JOBS: "4"
+      RUSTFLAGS: "-C target-cpu=generic"
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            curl ca-certificates build-essential pkg-config libssl-dev patchelf git
+          rm -rf /var/lib/apt/lists/*
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.build_ref }}
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Fetch Rust dependencies
+        run: |
+          for i in 1 2 3 4 5; do
+            cargo fetch --locked && break
+            if [ "$i" = 5 ]; then exit 1; fi
+            sleep $((i * 20))
+          done
+      - name: Build
+        run: cargo build --release --locked --offline --target "${{ matrix.triple }}" --features "${{ matrix.features }}" -p mistralrs-cli -p kev-rs
+      - name: Bundle runtime libraries
+        run: |
+          set -eux
+          out=target/${{ matrix.triple }}/release
+          mkdir -p package/lib
+          for bin in mistralrs kev-rs; do
+            ldd "$out/$bin" | awk '/=> \//{print $3}' \
+              | grep -E 'libcud|libnccl|libcublas|libcurand|libnvrtc|libnvJit|libnvjit' \
+              | sort -u | xargs -r -I{} cp -Lv {} package/lib/ || true
+            cp "$out/$bin" "package/$bin"
+            patchelf --set-rpath '$ORIGIN/lib' "package/$bin"
+          done
+      - name: Package
+        run: |
+          set -eux
+          name="mistralrs-cuda${{ matrix.cuda_asset }}-sm${{ matrix.sm }}-${{ matrix.triple }}.tar.gz"
+          tar czf "$name" -C package .
+          echo "ASSET=$name" >> "$GITHUB_ENV"
+      - uses: softprops/action-gh-release@v2
+        id: upload_release_asset
+        if: ${{ !inputs.dry_run }}
+        continue-on-error: true
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          draft: ${{ needs.preflight.outputs.release_draft }}
+          prerelease: ${{ contains(needs.preflight.outputs.tag, '-') }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          files: ${{ env.ASSET }}
+      - uses: softprops/action-gh-release@v2
+        if: ${{ !inputs.dry_run && steps.upload_release_asset.outcome == 'failure' }}
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          draft: ${{ needs.preflight.outputs.release_draft }}
+          prerelease: ${{ contains(needs.preflight.outputs.tag, '-') }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          files: ${{ env.ASSET }}
+
   windows-cpu:
     needs: preflight
     runs-on: windows-latest
@@ -517,7 +601,7 @@ jobs:
   # matrices promise must exist, or this fails with the missing list. Job status alone lies
   # in both directions (soft-failed steps look green, one flaked leg skips whole legs).
   verify-release:
-    needs: [preflight, metal, linux-cpu, windows-cpu, docker-cpu, pypi-publish]
+    needs: [preflight, metal, linux-cpu, linux-cuda, windows-cpu, docker-cpu, pypi-publish]
     if: ${{ !cancelled() && !inputs.dry_run && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:

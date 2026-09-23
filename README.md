@@ -1,4 +1,53 @@
 <a name="top"></a>
+
+> [!NOTE]
+> **This fork adds native support for [Kev](https://github.com/jaredpalmer/kev) System One decision models.** A new `kev-rs` binary loads an exported Kev checkpoint (Qwen3.5 backbone + pointer head) through the mistral.rs engine and exposes the TypeSafe-compatible `POST /v1/systemone` endpoint. Prefill-only, batched across question branches, with the shared state prefix (attention KV + Gated DeltaNet recurrent state) cached once per state. Runs on CPU, Metal (Apple Silicon) and CUDA. No Python at inference time.
+>
+> **1. Install** (fork prereleases ship `mistralrs` + `kev-rs` in one archive; Metal, Linux CPU x86_64/aarch64, Windows CPU, and consumer CUDA sm86/89/120 on Linux):
+>
+> ```sh
+> # installer (picks the Metal / CUDA / CPU archive for this machine)
+> MISTRALRS_INSTALL_TAG=v0.9.4-pre.1 sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"
+> # or with mise (GitHub-releases backend; `matching` narrows to the CPU archive, drop it on macOS)
+> mise use -g "github:espetro/mistral.rs[matching=mistralrs-cpu]@v0.9.4-pre.1"
+> ```
+>
+> Or build from source: `cargo build --release -p kev-rs --features kev-rs/metal` (or `kev-rs/cuda`, or no feature for CPU).
+>
+> **2. Get a checkpoint.** `kev-rs` reads an exported directory (`model/` merged HF weights + tokenizer, `head.safetensors`, `kev.json`). Export one from the [Kev weights on Hugging Face](https://huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd) (sizes 0.8B / 4B / 9B), from a checkout of the Kev repo:
+>
+> ```sh
+> git clone https://github.com/jaredpalmer/kev.git && cd kev && uv sync --extra serve
+> uv run --extra serve python /path/to/mistral.rs/kev-rs/scripts/export_checkpoint.py --run jaredpalmer/kev-0.8b --out ~/kev-0.8b
+> ```
+>
+> If someone has published an already-exported directory on the Hub, `hf download <repo> --local-dir ~/kev-0.8b` (from `pip install -U huggingface_hub`) replaces the export step.
+>
+> **3. Serve and ask:**
+>
+> ```sh
+> kev-rs serve --checkpoint ~/kev-0.8b --port 8009 --run jaredpalmer/kev-0.8b
+> curl localhost:8009/v1/systemone -H 'content-type: application/json' -d '{
+>   "state": "Shoes arrived two weeks late and in the wrong size. Also I see two charges on my card.",
+>   "questions": {
+>     "department": {"type": "choice", "instructions": "Which team should handle this?",
+>                    "criteria": {"returns": "Exchanges, refunds", "shipping": "Delays, lost packages", "billing": "Charges, invoices"}},
+>     "escalate":   {"type": "noul", "instructions": "Should a human agent take over right away?"},
+>     "frustration":{"type": "score", "instructions": "How frustrated is the customer?", "criteria": ["Calm", "Frustrated", "Very angry"]}
+>   }
+> }'
+> ```
+>
+> `GET /v1/models`, `POST /v1/systemone/permute` and `POST /v1/systemone/separate` are also served, bearer auth is enabled by setting `KEV_API_KEY`, and the TypeSafe SDK works unchanged: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`.
+>
+> **4. Web UI.** Kev's playground (Next.js, in the Kev repo) talks only to the `/v1/*` routes, so point it at `kev-rs`:
+>
+> ```sh
+> cd kev/playground && npm install && KEV_API=http://127.0.0.1:8009 npm run dev -- -p 3001   # open http://localhost:3001
+> ```
+>
+> Status: CPU parity with Kev's PyTorch reference on the 0.8B fixtures is max |dp| 0.00011, 0 argmax flips (34 questions), and Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA builds are produced but their runtime parity and speed are not yet measured; `date_facts` and `option_isolation` checkpoints are not supported. Details in [kev-rs/README.md](kev-rs/README.md); the engine change is a generic `return_hidden_states` prefill mode in `mistralrs-core` (intended for upstream). The release workflow's CUDA-on-free-runner leg and installer overrides are **fork-only workarounds** and will not be proposed upstream. Everything else is stock upstream mistral.rs.
+
 <!--
 <h1 align="center">
   mistral.rs
