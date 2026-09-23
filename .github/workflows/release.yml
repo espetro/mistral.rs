@@ -715,7 +715,8 @@ jobs:
           if [ "$PUBLISH_LATEST" = "true" ]; then
             make_latest=true
           else
-            latest_tag="$(gh api "repos/$REPOSITORY/releases/latest" --jq .tag_name)"
+            # 404 when the repo has no published stable release yet (e.g. a fork shipping only prereleases)
+            latest_tag="$(gh api "repos/$REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)"
             if [ "$latest_tag" = "$TAG" ]; then
               make_latest=true
             fi
