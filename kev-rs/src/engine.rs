@@ -109,12 +109,10 @@ impl KevEngine {
             builder = builder.with_paged_attn(PagedAttentionMetaBuilder::default().build()?);
         }
         let model = builder.build().await?;
-        let device = model.config()?.device;
-        let device = match device {
-            candle_core::Device::Cpu => "cpu".to_string(),
-            candle_core::Device::Cuda(dev) => format!("cuda:{}", dev.ordinal()),
-            candle_core::Device::Metal(_) => "metal".to_string(),
-            other => format!("{other:?}").to_lowercase(),
+        let device = match model.config()?.device.location() {
+            candle_core::DeviceLocation::Cpu => "cpu".to_string(),
+            candle_core::DeviceLocation::Cuda { gpu_id } => format!("cuda:{gpu_id}"),
+            candle_core::DeviceLocation::Metal { .. } => "metal".to_string(),
         };
         let prefix_cache_size = prefix_cache_size.unwrap_or_else(|| {
             std::env::var("KEV_PREFIX_CACHE")
