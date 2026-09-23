@@ -1,54 +1,95 @@
 <a name="top"></a>
 
 > [!NOTE]
-> **This fork adds native support for [Kev](https://github.com/jaredpalmer/kev) System One decision models.** A new `kev-rs` binary loads an exported Kev checkpoint (Qwen3.5 backbone + pointer head) through the mistral.rs engine and exposes the TypeSafe-compatible `POST /v1/systemone` endpoint. Prefill-only, batched across question branches, with the shared state prefix (attention KV + Gated DeltaNet recurrent state) cached once per state. Runs on CPU, Metal (Apple Silicon) and CUDA. No Python at inference time.
+> **This fork adds native support for [Kev](https://github.com/jaredpalmer/kev) System One decision models.** A new `kev-rs` binary loads a Kev checkpoint (Qwen3.5 backbone + pointer head) through the mistral.rs engine and exposes the TypeSafe-compatible `POST /v1/systemone` endpoint. Prefill-only, batched across question branches, with the shared state prefix (attention KV + Gated DeltaNet recurrent state) cached once per state. Runs on CPU, Metal (Apple Silicon) and CUDA. No Python at inference time.
 >
-> **1. Install** (fork prereleases ship `mistralrs` + `kev-rs` in one archive; Metal, Linux CPU x86_64/aarch64, Windows CPU, and consumer CUDA sm86/89/120 on Linux):
+> **Pick a model.** Ready-to-serve exports (merged fp32 weights + pointer head, Apache-2.0) are on the Hub; `kev-rs` downloads them on first use (`HF_HOME` cache).
+>
+> | Hub id | Source run | Download | RAM (fp32) | Notes |
+> |---|---|---|---|---|
+> | `espetro/kev-0.8b-mistralrs` | [jaredpalmer/kev-0.8b](https://huggingface.co/jaredpalmer/kev-0.8b) | 2.9 GB | ~4 GB | lightest; CPU parity verified, laptop-friendly |
+> | `espetro/kev-4b-mistralrs` | [jaredpalmer/kev-4b](https://huggingface.co/jaredpalmer/kev-4b) | 16 GB | ~18 GB | middle ground |
+> | [jaredpalmer/kev-9b](https://huggingface.co/jaredpalmer/kev-9b) (export yourself, see below) | [collection](https://huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd) | 36 GB | ~40 GB | most capable |
+>
+> **1. Install** (every fork release ships `mistralrs` + `kev-rs` in one archive: Metal, Linux CPU x86_64/aarch64, Windows CPU, consumer CUDA sm86/89/120 on Linux). The installer and `mise` always resolve the newest fork release, prereleases included, so nothing here pins a version:
 >
 > ```sh
-> # installer: newest fork release (prereleases included), picks the Metal / CUDA / CPU archive for this machine
-> sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"
-> # pin a release instead: MISTRALRS_INSTALL_TAG=v0.9.3-pre.2 sh -c "$(curl ...)"
-> # or with mise (GitHub-releases backend; `prerelease=true` is required since fork releases are prereleases,
-> # `matching` narrows to the CPU archive, use mistralrs-metal on macOS)
-> mise use -g "github:espetro/mistral.rs[prerelease=true,matching=mistralrs-cpu]@latest"
+> sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"   # picks Metal / CUDA / CPU for this machine
+> # or: mise use -g "github:espetro/mistral.rs[prerelease=true,matching=mistralrs-metal]@latest"   # matching=mistralrs-cpu / mistralrs-cuda128-sm89
+> # pin instead: MISTRALRS_INSTALL_TAG=<tag from the releases page> sh -c "$(curl -fsSL .../install.sh)"
+> # from source: cargo build --release -p kev-rs --features kev-rs/metal   (kev-rs/cuda, or no feature for CPU)
 > ```
 >
-> All builds are listed on the [releases page](https://github.com/espetro/mistral.rs/releases); each archive contains `mistralrs` (the stock server/CLI, `mistralrs serve -m <model>` with the web UI at `/ui`) and `kev-rs`. Or build from source: `cargo build --release -p kev-rs --features kev-rs/metal` (or `kev-rs/cuda`, or no feature for CPU).
+> Archives for every platform are on the [releases page](https://github.com/espetro/mistral.rs/releases).
 >
-> **2. Get a checkpoint.** `kev-rs` reads an exported directory (`model/` merged HF weights + tokenizer, `head.safetensors`, `kev.json`). Export one from the [Kev weights on Hugging Face](https://huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd) (sizes 0.8B / 4B / 9B), from a checkout of the Kev repo:
+> **2. Hello world.** Serve the lightest model and ask one question:
+>
+> ```sh
+> kev-rs serve --checkpoint espetro/kev-0.8b-mistralrs --run jaredpalmer/kev-0.8b     # http://127.0.0.1:8009
+> curl localhost:8009/v1/systemone -H 'content-type: application/json' -d '{
+>   "state": "Shoes arrived two weeks late and in the wrong size. Also I see two charges on my card.",
+>   "questions": {"department": {"type": "choice", "instructions": "Which team should handle this?",
+>                                "criteria": {"returns": "Exchanges, refunds", "shipping": "Delays, lost packages", "billing": "Charges, invoices"}}}
+> }'
+> # {"model":"kev-latest","answers":{"department":{"type":"choice","choice":"shipping","confidence":0.34,"probabilities":{...}}},"usage":{...},"latency_ms":...}
+> ```
+>
+> Swap in `espetro/kev-4b-mistralrs` / `jaredpalmer/kev-4b` for the 4B model, or a local export directory for `--checkpoint`. `--dtype bf16` halves memory on Metal/CUDA (parity was verified in f32), `--paged` enables PagedAttention for the attention layers.
+>
+> **3. Use the API: single, batch, parallel.**
+>
+> - *Single*: one `state` + one question, as above.
+> - *Batch*: put several questions in one request. They are independent branches over the same state; the state prefix is prefilled once (and cached across requests), then all branches are scheduled together in the engine:
+>
+>   ```sh
+>   curl localhost:8009/v1/systemone -H 'content-type: application/json' -d '{
+>     "state": "Shoes arrived two weeks late and in the wrong size. Also I see two charges on my card.",
+>     "questions": {
+>       "department": {"type": "choice", "instructions": "Which team should handle this?",
+>                      "criteria": {"returns": "Exchanges, refunds", "shipping": "Delays, lost packages", "billing": "Charges, invoices"}},
+>       "escalate":   {"type": "noul", "instructions": "Should a human agent take over right away?"},
+>       "frustration":{"type": "score", "instructions": "How frustrated is the customer?", "criteria": ["Calm", "Frustrated", "Very angry"]}
+>     }
+>   }'
+>   ```
+>
+> - *Parallel*: the server is async; concurrent HTTP requests are batched by the mistral.rs scheduler like any other mistral.rs traffic (measured on an 8-core CPU box with the 0.8B model: 8 concurrent copies of the request above finished in 2.0 s wall-clock vs 0.6 s for one). E.g. from a shell: `seq 1 8 | xargs -P 8 -I{} curl -s localhost:8009/v1/systemone -H 'content-type: application/json' -d @req.json`. Watch `GET /v1/models` -> `prefix_cache.hits` grow when requests share a state.
+>
+> `POST /v1/systemone/permute` (score a choice question under every option order) and `POST /v1/systemone/separate` (score each question alone, without the others in context) are also served; bearer auth is enabled by setting `KEV_API_KEY`; the TypeSafe SDK works unchanged: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`.
+>
+> **4. UI.** Kev's playground (Next.js, in the Kev repo) talks only to the `/v1/*` routes, so point it at `kev-rs`:
+>
+> ```sh
+> git clone https://github.com/jaredpalmer/kev.git && cd kev/playground && npm install
+> KEV_API=http://127.0.0.1:8009 npm run dev -- -p 3001   # open http://localhost:3001
+> ```
+>
+> The same archive also has the stock `mistralrs` CLI for ordinary chat/completions: `mistralrs serve -m Qwen/Qwen3.5-0.8B` (OpenAI API on :1234, web UI at `/ui`), `mistralrs run -m <model>` for an interactive session.
+>
+> **5. Docker** (Linux CPU, amd64 + arm64; image built by the release workflow with both binaries):
+>
+> ```sh
+> docker run --rm -p 8009:8009 -v hf-cache:/data --entrypoint kev-rs ghcr.io/espetro/mistral.rs:cpu-kev \
+>   serve --host 0.0.0.0 --checkpoint espetro/kev-0.8b-mistralrs --run jaredpalmer/kev-0.8b
+> # local export instead of a Hub id: -v ~/kev-0.8b:/ckpt:ro ... --checkpoint /ckpt
+> # stock server: docker run --rm -p 1234:1234 -v hf-cache:/data ghcr.io/espetro/mistral.rs:cpu-kev serve -m Qwen/Qwen3.5-0.8B
+> ```
+>
+> `cpu-kev` tracks the newest fork release (also tagged `cpu-<version>`). The container is CPU-only: Docker on macOS cannot reach Metal, so on Apple Silicon use the native binary from step 1; for NVIDIA use the CUDA archive on the host (no fork CUDA image yet).
+>
+> **6. Export a checkpoint yourself** (needed for 9B, for your own Kev runs, or to rebuild the Hub exports). From a Kev checkout, with Python + torch:
 >
 > ```sh
 > git clone https://github.com/jaredpalmer/kev.git && cd kev && uv sync --extra serve
-> uv run --extra serve python /path/to/mistral.rs/kev-rs/scripts/export_checkpoint.py --run jaredpalmer/kev-0.8b --out ~/kev-0.8b
+> uv run --extra serve python /path/to/mistral.rs/kev-rs/scripts/export_checkpoint.py --run jaredpalmer/kev-9b --out ~/kev-9b
+> kev-rs serve --checkpoint ~/kev-9b --run jaredpalmer/kev-9b
 > ```
 >
-> If someone has published an already-exported directory on the Hub, `hf download <repo> --local-dir ~/kev-0.8b` (from `pip install -U huggingface_hub`) replaces the export step.
+> The exporter merges the LoRA in fp32 and verifies the result bit-for-bit against Kev's own loader; it needs RAM for one fp32 copy of the model (about 40 GB for 9B) and the base weights from the Hub. Upload the directory with `hf upload <you>/kev-9b-mistralrs ~/kev-9b .` and `--checkpoint <you>/kev-9b-mistralrs` works everywhere.
 >
-> **3. Serve and ask:**
+> **Hosted / browser.** No in-browser inference: `kev-rs` is a native binary (Candle CPU/Metal/CUDA), there is no WASM target, and even the 0.8B export is 2.9 GB of fp32 weights. What works today is a hosted API plus a browser UI: the Linux CPU archive or the Docker image runs anywhere a container or shell is available (a Hugging Face Space with a Docker SDK, a Kaggle/Colab notebook, a VPS), and Kev's playground or the TypeSafe SDK talks to it over HTTP. These hosted paths have not been exercised from this fork yet; the Linux binary, the installer, the Hub download and the Docker image have.
 >
-> ```sh
-> kev-rs serve --checkpoint ~/kev-0.8b --port 8009 --run jaredpalmer/kev-0.8b
-> curl localhost:8009/v1/systemone -H 'content-type: application/json' -d '{
->   "state": "Shoes arrived two weeks late and in the wrong size. Also I see two charges on my card.",
->   "questions": {
->     "department": {"type": "choice", "instructions": "Which team should handle this?",
->                    "criteria": {"returns": "Exchanges, refunds", "shipping": "Delays, lost packages", "billing": "Charges, invoices"}},
->     "escalate":   {"type": "noul", "instructions": "Should a human agent take over right away?"},
->     "frustration":{"type": "score", "instructions": "How frustrated is the customer?", "criteria": ["Calm", "Frustrated", "Very angry"]}
->   }
-> }'
-> ```
->
-> `GET /v1/models`, `POST /v1/systemone/permute` and `POST /v1/systemone/separate` are also served, bearer auth is enabled by setting `KEV_API_KEY`, and the TypeSafe SDK works unchanged: `TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8009", model="kev-latest")`.
->
-> **4. Web UI.** Kev's playground (Next.js, in the Kev repo) talks only to the `/v1/*` routes, so point it at `kev-rs`:
->
-> ```sh
-> cd kev/playground && npm install && KEV_API=http://127.0.0.1:8009 npm run dev -- -p 3001   # open http://localhost:3001
-> ```
->
-> Status: CPU parity with Kev's PyTorch reference on the 0.8B fixtures is max |dp| 0.00011, 0 argmax flips (34 questions), and Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA builds are produced but their runtime parity and speed are not yet measured; `date_facts` and `option_isolation` checkpoints are not supported. Details in [kev-rs/README.md](kev-rs/README.md); the engine change is a generic `return_hidden_states` prefill mode in `mistralrs-core` (intended for upstream). The release workflow's CUDA-on-free-runner leg and installer overrides are **fork-only workarounds** and will not be proposed upstream. Everything else is stock upstream mistral.rs.
+> **Status.** CPU parity with Kev's PyTorch reference on the 0.8B fixtures is max |dp| 0.00011, 0 argmax flips (34 questions), and Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA binaries are built by CI but their runtime parity and speed are not yet measured; `date_facts` and `option_isolation` checkpoints are not supported. Details in [kev-rs/README.md](kev-rs/README.md); the engine change is a generic `return_hidden_states` prefill mode in `mistralrs-core` (intended for upstream). The release workflow's CUDA-on-free-runner leg, the `cpu-kev` image tag and the installer overrides are **fork-only workarounds** and will not be proposed upstream. Everything else is stock upstream mistral.rs.
 
 <!--
 <h1 align="center">

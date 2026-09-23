@@ -22,14 +22,16 @@ HEREDOC
 # TARGETARCH (amd64/arm64) is set by buildx; the release workflow stages dist/<arch>/.
 ARG TARGETARCH
 COPY --chmod=755 dist/${TARGETARCH}/mistralrs /usr/local/bin/mistralrs
+# Kev pointer-head server (`docker run --entrypoint kev-rs ... serve --checkpoint <dir|hub id>`)
+COPY --chmod=755 dist/${TARGETARCH}/kev-rs /usr/local/bin/kev-rs
 # Chat templates for models that ship without one
 COPY chat_templates /chat_templates
 
 # hf-hub reads HF_HOME; mount a volume at /data to persist downloaded models
 ENV HF_HOME=/data
 
-# Default port of `mistralrs serve`
-EXPOSE 1234
+# Default ports of `mistralrs serve` and `kev-rs serve`
+EXPOSE 1234 8009
 
 ENTRYPOINT ["mistralrs"]
 CMD ["--help"]

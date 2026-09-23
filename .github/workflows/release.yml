@@ -490,7 +490,10 @@ jobs:
           file: Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.img.outputs.image }}:cpu-${{ steps.ver.outputs.v }}
+          # cpu-kev is a fork-only moving tag (prereleases never get cpu-latest) so docs can pin one name
+          tags: |
+            ${{ steps.img.outputs.image }}:cpu-${{ steps.ver.outputs.v }}
+            ${{ github.repository != 'EricLBuehler/mistral.rs' && format('{0}:cpu-kev', steps.img.outputs.image) || '' }}
       - name: Smoke-test CPU images
         env:
           VERSION: ${{ steps.ver.outputs.v }}
@@ -499,6 +502,8 @@ jobs:
           image="${IMAGE}:cpu-${VERSION}"
           docker run --rm --platform linux/amd64 "$image" --help >/dev/null
           docker run --rm --platform linux/arm64 "$image" --help >/dev/null
+          docker run --rm --platform linux/amd64 --entrypoint kev-rs "$image" --help >/dev/null
+          docker run --rm --platform linux/arm64 --entrypoint kev-rs "$image" --help >/dev/null
 
   # Real (non-prerelease) tags from the canonical repo publish the wheels (built in the metal /
   # linux-cpu / windows-cpu jobs above) to PyPI via OIDC (no token). rc tags build the wheels as

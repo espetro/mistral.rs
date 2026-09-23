@@ -292,13 +292,13 @@ pub fn router(state: Shared) -> Router {
         .with_state(state)
 }
 
-pub async fn serve(engine: KevEngine, release_date: String, port: u16) -> Result<()> {
+pub async fn serve(engine: KevEngine, release_date: String, host: &str, port: u16) -> Result<()> {
     let state = Arc::new(AppState {
         engine: Arc::new(engine),
         release_date,
     });
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
-    println!("serving on 127.0.0.1:{port}");
+    let listener = tokio::net::TcpListener::bind((host, port)).await?;
+    println!("serving on {host}:{port}");
     axum::serve(listener, router(state)).await?;
     Ok(())
 }

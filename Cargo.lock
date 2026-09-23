@@ -3245,6 +3245,7 @@ dependencies = [
  "candle-nn",
  "clap",
  "futures",
+ "hf-hub",
  "indexmap 2.13.0",
  "mistralrs",
  "mistralrs-core",

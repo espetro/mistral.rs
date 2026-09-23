@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use kev_rs::api::{to_record, SystemOneRequest};
+use kev_rs::checkpoint;
 use kev_rs::encode::{self, Branch, Encoding, KevJson, MAX_BRANCH, MAX_STATE};
 use kev_rs::engine::KevEngine;
 
@@ -23,9 +24,13 @@ struct Cli {
 enum Cmd {
     /// Serve /v1/systemone for an exported checkpoint.
     Serve {
-        /// Directory written by scripts/export_checkpoint.py (model/, head.safetensors, kev.json).
+        /// Directory written by scripts/export_checkpoint.py (model/, head.safetensors, kev.json),
+        /// or a Hub repo holding one (`owner/repo[@revision]`, downloaded into the hf-hub cache).
         #[arg(long)]
-        checkpoint: PathBuf,
+        checkpoint: String,
+        /// Bind address; use 0.0.0.0 inside containers.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
         #[arg(long, default_value_t = 8009)]
         port: u16,
         #[arg(long)]
@@ -41,7 +46,7 @@ enum Cmd {
     /// Compare kev-rs probabilities against the torch reference JSON.
     Parity {
         #[arg(long)]
-        checkpoint: PathBuf,
+        checkpoint: String,
         #[arg(long)]
         reference: PathBuf,
         #[arg(long)]
@@ -52,7 +57,7 @@ enum Cmd {
     /// Compare the record->ids encoder output against the reference JSON, token-exact.
     EncodeCheck {
         #[arg(long)]
-        checkpoint: PathBuf,
+        checkpoint: String,
         #[arg(long)]
         records: PathBuf,
         #[arg(long)]
@@ -220,26 +225,34 @@ async fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Serve {
             checkpoint,
+            host,
             port,
             paged,
             dtype,
             run,
             release_date,
         } => {
+            let checkpoint = checkpoint::resolve(&checkpoint).await?;
             let mut engine = KevEngine::load(&checkpoint, &dtype, paged, None).await?;
             engine.run = run;
-            kev_rs::server::serve(engine, release_date, port).await
+            kev_rs::server::serve(engine, release_date, &host, port).await
         }
         Cmd::Parity {
             checkpoint,
             reference,
             paged,
             dtype,
-        } => parity(&checkpoint, &reference, &dtype, paged).await,
+        } => {
+            let checkpoint = checkpoint::resolve(&checkpoint).await?;
+            parity(&checkpoint, &reference, &dtype, paged).await
+        }
         Cmd::EncodeCheck {
             checkpoint,
             records,
             reference,
-        } => encode_check(&checkpoint, &records, &reference),
+        } => {
+            let checkpoint = checkpoint::resolve(&checkpoint).await?;
+            encode_check(&checkpoint, &records, &reference)
+        }
     }
 }
