@@ -2468,18 +2468,23 @@ impl Pipeline for NormalPipeline {
                 }
                 eager_result?
             }
-            true => self.model.xlora_forward(
-                &input_ids,
-                input_ids_full.as_ref().unwrap_or(&input_ids),
-                &seqlen_offsets,
-                seqlen_offsets_full.as_ref().unwrap_or(&seqlen_offsets),
-                self.no_kv_cache,
-                &self.non_granular_state,
-                context_lens,
-                position_ids,
-                &flash_meta,
-                flash_meta_full.as_ref().unwrap_or(&flash_meta),
-            )?,
+            true => {
+                if mode.hidden_states {
+                    candle_core::bail!("return_hidden_states is not supported for X-LoRA models");
+                }
+                self.model.xlora_forward(
+                    &input_ids,
+                    input_ids_full.as_ref().unwrap_or(&input_ids),
+                    &seqlen_offsets,
+                    seqlen_offsets_full.as_ref().unwrap_or(&seqlen_offsets),
+                    self.no_kv_cache,
+                    &self.non_granular_state,
+                    context_lens,
+                    position_ids,
+                    &flash_meta,
+                    flash_meta_full.as_ref().unwrap_or(&flash_meta),
+                )?
+            }
         };
         let output = if mode.hidden_states {
             ForwardInputsResult::HiddenStates { hidden: logits }

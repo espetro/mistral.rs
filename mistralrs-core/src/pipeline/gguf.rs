@@ -1520,6 +1520,9 @@ impl Pipeline for GGUFPipeline {
         inputs: Box<dyn Any>,
         mode: PrefillOutputMode,
     ) -> Result<ForwardInputsResult, candle_core::Error> {
+        if mode.hidden_states {
+            candle_core::bail!("return_hidden_states is not supported for GGUF models");
+        }
         let ModelInputs {
             input_ids,
             input_ids_full,

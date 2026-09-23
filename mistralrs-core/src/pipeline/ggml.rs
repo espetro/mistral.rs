@@ -558,6 +558,9 @@ impl Pipeline for GGMLPipeline {
             recurrent_batch_kind: _,
             adapter_leases: _adapter_leases,
         } = *inputs.downcast().expect("Downcast failed.");
+        if mode.hidden_states {
+            candle_core::bail!("return_hidden_states is not supported for GGML models");
+        }
         let logits = match self.model {
             Model::Llama(ref model) => {
                 model.forward(&input_ids, &seqlen_offsets, context_lens, None)?
