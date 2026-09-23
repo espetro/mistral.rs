@@ -94,17 +94,45 @@ impl SystemOneRequest {
     }
 }
 
-/// Python repr for a JSON number: ints print plainly, floats print the shortest
-/// round-trip form with a decimal point (str(1.0) == "1.0").
-fn py_num(n: &serde_json::Number) -> String {
-    if n.is_f64() {
-        let f = n.as_f64().unwrap_or(0.0);
+/// Python repr(float) for finite values: shortest round-trip digits, fixed
+/// notation for decimal exponents in [-4, 16), else 1-digit-lead scientific.
+fn py_float_repr(f: f64) -> String {
+    if !f.is_finite() {
+        return format!("{f}");
+    }
+    let sci = format!("{f:e}");
+    let (mant, exp) = sci.split_once('e').unwrap_or(("0", "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    if (-4..16).contains(&exp) {
         let s = format!("{f}");
-        if s.contains('.') || s.contains('e') || s.contains("inf") || s.contains("NaN") {
+        if s.contains('.') {
             s
         } else {
             format!("{s}.0")
         }
+    } else {
+        let neg = mant.starts_with('-');
+        let digits: String = mant.chars().filter(|c| c.is_ascii_digit()).collect();
+        let digits = digits.trim_end_matches('0');
+        let digits = if digits.is_empty() { "0" } else { digits };
+        let mant = if digits.len() > 1 {
+            format!("{}.{}", &digits[..1], &digits[1..])
+        } else {
+            digits.to_string()
+        };
+        let sign = if exp < 0 { '-' } else { '+' };
+        format!(
+            "{}{mant}e{sign}{:02}",
+            if neg { "-" } else { "" },
+            exp.abs()
+        )
+    }
+}
+
+/// Python repr for a JSON number: ints print plainly, floats print like repr(float).
+fn py_num(n: &serde_json::Number) -> String {
+    if n.is_f64() {
+        py_float_repr(n.as_f64().unwrap_or(0.0))
     } else {
         n.to_string()
     }
@@ -386,4 +414,29 @@ pub fn to_answers(probs: &[Vec<f32>], meta: &[QuestionMeta]) -> Value {
         out.insert(m.id.clone(), Value::Object(a));
     }
     Value::Object(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::py_float_repr;
+
+    #[test]
+    fn float_repr_matches_python() {
+        for (f, want) in [
+            (1e16, "1e+16"),
+            (1e20, "1e+20"),
+            (1e-4, "0.0001"),
+            (1e-5, "1e-05"),
+            (1.5e-5, "1.5e-05"),
+            (0.1, "0.1"),
+            (1.0, "1.0"),
+            (100.0, "100.0"),
+            (-2.5e30, "-2.5e+30"),
+            (123456789012345.0, "123456789012345.0"),
+            (1e15, "1000000000000000.0"),
+            (-0.0, "-0.0"),
+        ] {
+            assert_eq!(py_float_repr(f), want, "repr({f})");
+        }
+    }
 }

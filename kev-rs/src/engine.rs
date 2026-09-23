@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
-use candle_core::{DType, Tensor};
+use candle_core::{DType, Device, Tensor};
 use mistralrs::{Model, ModelBuilder, ModelDType, PagedAttentionMetaBuilder};
 use tokenizers::Tokenizer;
 
@@ -108,13 +108,15 @@ impl KevEngine {
         if paged {
             builder = builder.with_paged_attn(PagedAttentionMetaBuilder::default().build()?);
         }
-        let model = builder.build().await?;
         let prefix_cache_size = prefix_cache_size.unwrap_or_else(|| {
             std::env::var("KEV_PREFIX_CACHE")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_PREFIX_CACHE_SIZE)
         });
+        // one engine slot minimum so branches in a request reuse the seeded state
+        builder = builder.with_prefix_cache_n(Some(prefix_cache_size.max(1)));
+        let model = builder.build().await?;
         Ok(Self {
             model,
             tok,
@@ -185,7 +187,7 @@ impl KevEngine {
         for (br, res) in enc.branches.iter().zip(responses) {
             let res = res?;
             let off = res.prefix_cached_tokens;
-            let hidden = res.hidden.to_dtype(DType::F32)?;
+            let hidden = res.hidden.to_device(&Device::Cpu)?.to_dtype(DType::F32)?;
             let row = |idx: usize| -> Result<Tensor> {
                 let r = enc.state_len + idx;
                 if r < off {
