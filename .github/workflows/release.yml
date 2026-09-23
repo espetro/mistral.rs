@@ -448,7 +448,8 @@ jobs:
     if: ${{ !inputs.dry_run && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # write, not read: the release is a draft until publish, and drafts are invisible to read-only tokens
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v4
@@ -606,7 +607,7 @@ jobs:
     if: ${{ !cancelled() && !inputs.dry_run && needs.preflight.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: read
     steps:
       - uses: actions/checkout@v4
