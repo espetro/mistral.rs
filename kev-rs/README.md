@@ -37,21 +37,21 @@ holding that layout as `owner/repo[@revision]`, downloaded into the hf-hub cache
 |---|---|---|
 | `espetro/kev-0.8b-mistralrs` | `jaredpalmer/kev-0.8b` | 2.9 GB |
 | `espetro/kev-4b-mistralrs` | `jaredpalmer/kev-4b` | 16 GB |
+| `espetro/kev-9b-mistralrs` | `jaredpalmer/kev-9b` | 17 GB (bf16) |
 
-Export any other run (e.g. `jaredpalmer/kev-9b`, 36 GB fp32) from a Kev checkout:
+Export any other run or precision from a Kev checkout:
 
 ```sh
-uv run --extra serve python /path/to/mistral.rs/kev-rs/scripts/export_checkpoint.py --run jaredpalmer/kev-9b --out ~/kev-9b
+uv run --extra serve python /path/to/mistral.rs/kev-rs/scripts/export_checkpoint.py --run jaredpalmer/kev-9b --out ~/kev-9b --dtype bf16
 ```
 
-The exporter merges the LoRA in fp32 and checks every merged tensor bit-for-bit against
-Kev's own loader (via digests, so only one fp32 copy is resident). `option_isolation`
-checkpoints are rejected.
+The exporter loads the base and merges the LoRA in `--dtype` (fp32/bf16/fp16; default
+fp32). `option_isolation` checkpoints are rejected.
 
 ## Usage
 
 ```sh
-kev-rs serve --checkpoint <dir | owner/repo> [--run jaredpalmer/kev-0.8b] [--host 127.0.0.1] [--port 8009] [--paged] [--dtype f32|bf16]
+kev-rs serve --checkpoint <dir | owner/repo> [--run jaredpalmer/kev-0.8b] [--host 127.0.0.1] [--port 8009] [--paged] [--dtype auto|f32|bf16|f16] [--isq <bits-or-type>]
 kev-rs parity --checkpoint <dir | owner/repo> --reference <reference.json>
 kev-rs encode-check --checkpoint <dir | owner/repo> --records <records.jsonl> --reference <reference.json>
 ```
@@ -69,7 +69,8 @@ docker run --rm -p 8009:8009 -v hf-cache:/data --entrypoint kev-rs ghcr.io/espet
 ## Status
 
 CPU parity vs Kev's PyTorch reference (0.8B fixtures): max |dp| 0.00011, 0 argmax flips
-over 34 questions; Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA
+over 34 questions; the bf16 9B export is max |dp| 0.023, 0/40 flips, and `--isq 8` on it
+is 1/40 flips. Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA
 builds exist but their runtime parity and speed are unmeasured. `date_facts` and
 `option_isolation` checkpoints are unsupported. There is no WASM/browser build; hosted use
 means running the Linux binary or Docker image next to a UI (Kev playground, TypeSafe SDK).

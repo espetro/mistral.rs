@@ -3,13 +3,13 @@
 > [!NOTE]
 > **This fork adds native support for [Kev](https://github.com/jaredpalmer/kev) System One decision models.** A new `kev-rs` binary loads a Kev checkpoint (Qwen3.5 backbone + pointer head) through the mistral.rs engine and exposes the TypeSafe-compatible `POST /v1/systemone` endpoint. Prefill-only, batched across question branches, with the shared state prefix (attention KV + Gated DeltaNet recurrent state) cached once per state. Runs on CPU, Metal (Apple Silicon) and CUDA. No Python at inference time.
 >
-> **Pick a model.** Ready-to-serve exports (merged fp32 weights + pointer head, Apache-2.0) are on the Hub; `kev-rs` downloads them on first use (`HF_HOME` cache).
+> **Pick a model.** Ready-to-serve exports (merged weights + pointer head, Apache-2.0) are on the Hub; `kev-rs` downloads them on first use (`HF_HOME` cache).
 >
-> | Hub id | Source run | Download | RAM (fp32) | Notes |
+> | Hub id | Source run | Download | RAM | Notes |
 > |---|---|---|---|---|
-> | `espetro/kev-0.8b-mistralrs` | [jaredpalmer/kev-0.8b](https://huggingface.co/jaredpalmer/kev-0.8b) | 2.9 GB | ~4 GB | lightest; CPU parity verified, laptop-friendly |
-> | `espetro/kev-4b-mistralrs` | [jaredpalmer/kev-4b](https://huggingface.co/jaredpalmer/kev-4b) | 16 GB | ~18 GB | middle ground |
-> | [jaredpalmer/kev-9b](https://huggingface.co/jaredpalmer/kev-9b) (export yourself, see below) | [collection](https://huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd) | 36 GB | ~40 GB | most capable |
+> | `espetro/kev-0.8b-mistralrs` | [jaredpalmer/kev-0.8b](https://huggingface.co/jaredpalmer/kev-0.8b) | 2.9 GB | ~4 GB | fp32; lightest, laptop-friendly |
+> | `espetro/kev-4b-mistralrs` | [jaredpalmer/kev-4b](https://huggingface.co/jaredpalmer/kev-4b) | 16 GB | ~18 GB | fp32; middle ground |
+> | `espetro/kev-9b-mistralrs` | [jaredpalmer/kev-9b](https://huggingface.co/jaredpalmer/kev-9b) | 17 GB | ~20 GB | bf16; most capable |
 >
 > **1. Install** (every fork release ships `mistralrs` + `kev-rs` in one archive: Metal, Linux CPU x86_64/aarch64, Windows CPU, consumer CUDA sm86/89/120 on Linux). The installer and `mise` always resolve the newest fork release, prereleases included, so nothing here pins a version:
 >
@@ -34,7 +34,7 @@
 > # {"model":"kev-latest","answers":{"department":{"type":"choice","choice":"shipping","confidence":0.34,"probabilities":{...}}},"usage":{...},"latency_ms":...}
 > ```
 >
-> Swap in `espetro/kev-4b-mistralrs` / `jaredpalmer/kev-4b` for the 4B model, or a local export directory for `--checkpoint`. `--dtype bf16` halves memory on Metal/CUDA (parity was verified in f32), `--paged` enables PagedAttention for the attention layers.
+> Swap in `espetro/kev-4b-mistralrs` / `jaredpalmer/kev-4b` for the 4B model, or `espetro/kev-9b-mistralrs` / `jaredpalmer/kev-9b` for the 9B. `--isq 8` quantizes the checkpoint in-situ at load (roughly halves memory again, at some accuracy cost), and `--paged` enables PagedAttention for the attention layers.
 >
 > **3. Use the API: single, batch, parallel.**
 >
@@ -77,19 +77,19 @@
 >
 > `cpu-kev` tracks the newest fork release (also tagged `cpu-<version>`). The container is CPU-only: Docker on macOS cannot reach Metal, so on Apple Silicon use the native binary from step 1; for NVIDIA use the CUDA archive on the host (no fork CUDA image yet).
 >
-> **6. Export a checkpoint yourself** (needed for 9B, for your own Kev runs, or to rebuild the Hub exports). From a Kev checkout, with Python + torch:
+> **6. Export a checkpoint yourself** (for your own Kev runs, a different precision, or to rebuild the Hub exports). From a Kev checkout, with Python + torch:
 >
 > ```sh
 > git clone https://github.com/jaredpalmer/kev.git && cd kev && uv sync --extra serve
-> uv run --extra serve python /path/to/mistral.rs/kev-rs/scripts/export_checkpoint.py --run jaredpalmer/kev-9b --out ~/kev-9b
+> uv run --extra serve python /path/to/mistral.rs/kev-rs/scripts/export_checkpoint.py --run jaredpalmer/kev-9b --out ~/kev-9b --dtype bf16
 > kev-rs serve --checkpoint ~/kev-9b --run jaredpalmer/kev-9b
 > ```
 >
-> The exporter merges the LoRA in fp32 and verifies the result bit-for-bit against Kev's own loader; it needs RAM for one fp32 copy of the model (about 40 GB for 9B) and the base weights from the Hub. Upload the directory with `hf upload <you>/kev-9b-mistralrs ~/kev-9b .` and `--checkpoint <you>/kev-9b-mistralrs` works everywhere.
+> The exporter loads the base and merges the LoRA in `--dtype` (fp32/bf16/fp16); a bf16 9B export peaks around 20 GB of RAM, fp32 around 40 GB. The base weights come from the Hub. Upload the directory with `hf upload <you>/kev-9b-mistralrs ~/kev-9b .` and `--checkpoint <you>/kev-9b-mistralrs` works everywhere.
 >
 > **Hosted / browser.** No in-browser inference: `kev-rs` is a native binary (Candle CPU/Metal/CUDA), there is no WASM target, and even the 0.8B export is 2.9 GB of fp32 weights. What works today is a hosted API plus a browser UI: the Linux CPU archive or the Docker image runs anywhere a container or shell is available (a Hugging Face Space with a Docker SDK, a Kaggle/Colab notebook, a VPS), and Kev's playground or the TypeSafe SDK talks to it over HTTP. These hosted paths have not been exercised from this fork yet; the Linux binary, the installer, the Hub download and the Docker image have.
 >
-> **Status.** CPU parity with Kev's PyTorch reference on the 0.8B fixtures is max |dp| 0.00011, 0 argmax flips (34 questions), and Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA binaries are built by CI but their runtime parity and speed are not yet measured; `date_facts` and `option_isolation` checkpoints are not supported. Details in [kev-rs/README.md](kev-rs/README.md); the engine change is a generic `return_hidden_states` prefill mode in `mistralrs-core` (intended for upstream). The release workflow's CUDA-on-free-runner leg, the `cpu-kev` image tag and the installer overrides are **fork-only workarounds** and will not be proposed upstream. Everything else is stock upstream mistral.rs.
+> **Status.** CPU parity with Kev's PyTorch reference on the 0.8B fixtures is max |dp| 0.00011, 0 argmax flips (34 questions); the bf16 9B export shows max |dp| 0.023, 0/40 flips, and `--isq 8` shows 1/40 flips on the same set. Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA binaries are built by CI but their runtime parity and speed are not yet measured; `date_facts` and `option_isolation` checkpoints are not supported. Details in [kev-rs/README.md](kev-rs/README.md); the engine change is a generic `return_hidden_states` prefill mode in `mistralrs-core` (intended for upstream). The release workflow's CUDA-on-free-runner leg, the `cpu-kev` image tag and the installer overrides are **fork-only workarounds** and will not be proposed upstream. Everything else is stock upstream mistral.rs.
 
 <!--
 <h1 align="center">
