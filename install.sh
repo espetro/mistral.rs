@@ -452,6 +452,14 @@ install_mistralrs() {
     fi
 }
 
+unlink_managed_kev_rs() {
+    link="$BIN_DIR/kev-rs"
+    target="$PREBUILT_DIR/kev-rs"
+    if [ -L "$link" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; then
+        rm -f "$link"
+    fi
+}
+
 remove_legacy_tileiras_link() {
     legacy_tileiras_link="$BIN_DIR/tileiras"
     legacy_tileiras_target="$PREBUILT_DIR/bin/tileiras"
@@ -465,6 +473,7 @@ install_source_from_staging() {
         error "cargo install succeeded but $SOURCE_MISTRALRS was not found"
     fi
     remove_legacy_tileiras_link
+    unlink_managed_kev_rs
     rm -rf "$PREBUILT_DIR"
     mkdir -p "$PREBUILT_DIR" "$BIN_DIR"
     cp "$SOURCE_MISTRALRS" "$PREBUILT_DIR/mistralrs"
@@ -609,6 +618,7 @@ install_prebuilt() {
         return 1
     fi
     remove_legacy_tileiras_link
+    unlink_managed_kev_rs
     rm -rf "$PREBUILT_DIR"
     mkdir -p "$PREBUILT_DIR"
     # CPU/Metal tarballs contain a bare `mistralrs`; CUDA tarballs add runtime libraries in lib/.
@@ -963,6 +973,17 @@ main() {
                     if install_prebuilt "$legacy_asset"; then
                         method="prebuilt"
                     fi
+                fi
+                if [ "$method" != "prebuilt" ]; then
+                    case "$asset" in
+                        mistralrs-cuda*)
+                            cpu_asset="mistralrs-cpu-$(uname -m)-unknown-linux-gnu.tar.gz"
+                            warn "no CUDA prebuilt for this release, using CPU archive"
+                            if install_prebuilt "$cpu_asset"; then
+                                method="prebuilt"
+                            fi
+                            ;;
+                    esac
                 fi
                 if [ "$method" != "prebuilt" ]; then
                     warn "Prebuilt install failed; building from source instead."
