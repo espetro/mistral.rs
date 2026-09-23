@@ -1656,6 +1656,7 @@ impl MistralRs {
                     tools: None,
                     logits_processors: None,
                     return_raw_logits: false,
+                    return_hidden_states: false,
                     web_search_options: None,
                     enable_code_execution: false,
                     enable_shell: false,

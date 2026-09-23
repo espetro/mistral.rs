@@ -3,7 +3,7 @@ use super::{
     AdapterPaths, AnyMoePipelineMixin, Cache, CacheManagerMixin, EitherCache, ForwardInputsResult,
     GeneralMetadata, InputProcessorOutput, InputsProcessor, InputsProcessorType, IsqPipelineMixin,
     Loader, MessagesAction, MetadataMixin, ModelCategory, ModelKind, ModelPaths,
-    PreProcessingMixin, Processor, TokenSource,
+    PreProcessingMixin, PrefillOutputMode, Processor, TokenSource,
 };
 use crate::device_map::{self, DeviceMapper};
 use crate::distributed::{use_ring, WorkerTransferData};
@@ -405,9 +405,9 @@ impl Pipeline for SpeechPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> candle_core::Result<ForwardInputsResult> {
-        assert!(!return_raw_logits);
+        assert!(!mode.raw_logits);
 
         let ModelInputs { prompts } = *inputs.downcast().expect("Downcast failed.");
         let mut pcms = Vec::new();

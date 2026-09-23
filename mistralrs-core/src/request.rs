@@ -411,6 +411,7 @@ impl WebSearchOptions {
 ///     3) Apply temperature and softmax
 ///     4) Sample the next token (topk, topp, minp, etc)
 /// - `return_raw_logits`: Return raw logits.
+/// - `return_hidden_states`: Return post-norm hidden states for every prompt position and skip sampling.
 /// - `truncate_sequence`: Whether to truncate the prompt if it exceeds the model's maximum context length.
 pub struct NormalRequest {
     pub messages: RequestMessage,
@@ -434,6 +435,7 @@ pub struct NormalRequest {
     #[serde(skip)]
     pub logits_processors: Option<Vec<Arc<dyn CustomLogitsProcessor>>>,
     pub return_raw_logits: bool,
+    pub return_hidden_states: bool,
     pub web_search_options: Option<WebSearchOptions>,
     /// When true, registered code-execution tools are injected and the agentic loop runs.
     #[serde(default)]
@@ -516,6 +518,7 @@ impl NormalRequest {
             suffix: None,
             logits_processors: None,
             return_raw_logits: false,
+            return_hidden_states: false,
             web_search_options: None,
             enable_code_execution: false,
             enable_shell: false,

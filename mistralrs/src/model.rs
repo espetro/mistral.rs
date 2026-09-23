@@ -13,6 +13,17 @@ use crate::{EmbeddingRequest, EmbeddingRequestBuilder, RequestLike, TextMessages
 // Re-export for convenience
 pub use mistralrs_core::{AddModelConfig, ModelStatus, Pipeline, SchedulerConfig};
 
+/// Post-final-norm hidden states returned by a prefill-only request.
+pub struct HiddenStates {
+    /// `[new_tokens, hidden_size]` hidden states for the positions that were not
+    /// served from the prefix cache.
+    pub hidden: Tensor,
+    /// The full token sequence of the request, including cached prefix tokens.
+    pub tokens: Vec<u32>,
+    /// Number of leading tokens served from the prefix cache.
+    pub prefix_cached_tokens: usize,
+}
+
 /// Gets the best device, cpu, cuda if compiled with CUDA, or Metal
 pub fn best_device(force_cpu: bool) -> Result<Device> {
     if force_cpu {
@@ -304,6 +315,7 @@ impl Model {
             tool_choice,
             logits_processors: request.take_logits_processors(),
             return_raw_logits: false,
+            return_hidden_states: false,
             web_search_options: request.take_web_search_options(),
             enable_code_execution: request.enable_code_execution(),
             enable_shell: request.enable_shell(),
@@ -373,6 +385,7 @@ impl Model {
             tool_choice,
             logits_processors: request.take_logits_processors(),
             return_raw_logits: false,
+            return_hidden_states: false,
             web_search_options: request.take_web_search_options(),
             enable_code_execution: request.enable_code_execution(),
             enable_shell: request.enable_shell(),
@@ -460,6 +473,7 @@ impl Model {
             tool_choice,
             logits_processors: request.take_logits_processors(),
             return_raw_logits: true,
+            return_hidden_states: false,
             web_search_options: request.take_web_search_options(),
             enable_code_execution: request.enable_code_execution(),
             enable_shell: request.enable_shell(),
@@ -498,6 +512,84 @@ impl Model {
                 } => return Ok((logits_chunks, tokens)),
                 _ => return Err(SdkError::UnexpectedResponse { expected: "Raw" }),
             }
+        }
+    }
+
+    /// Run a prefill-only request, returning post-final-norm hidden states for every
+    /// prompt position of the non-cached suffix. The request seeds the prefix cache, so
+    /// later requests sharing a prefix report it via `prefix_cached_tokens`.
+    pub async fn send_hidden_states_request(
+        &self,
+        tokens: Vec<u32>,
+    ) -> crate::error::Result<HiddenStates> {
+        self.send_hidden_states_request_with_model(tokens, None)
+            .await
+    }
+
+    /// Run a prefill-only request against a specific model. If `model_id` is `None`,
+    /// the request is sent to the default model.
+    pub async fn send_hidden_states_request_with_model(
+        &self,
+        tokens: Vec<u32>,
+        model_id: Option<&str>,
+    ) -> crate::error::Result<HiddenStates> {
+        let (tx, mut rx) = channel(1);
+
+        let request = Request::Normal(Box::new(NormalRequest {
+            messages: RequestMessage::CompletionTokens(tokens),
+            sampling_params: SamplingParams::deterministic(),
+            seed: None,
+            response: tx,
+            return_logprobs: false,
+            is_streaming: false,
+            id: 0,
+            queued_at: None,
+            constraint: Constraint::None,
+            suffix: None,
+            tools: None,
+            tool_choice: None,
+            logits_processors: None,
+            return_raw_logits: false,
+            return_hidden_states: true,
+            web_search_options: None,
+            enable_code_execution: false,
+            enable_shell: false,
+            shell_options: None,
+            code_execution_permission: None,
+            code_execution_approval_notifier: None,
+            agent_permission: None,
+            agent_approval_handler: None,
+            agent_approval_notifier: None,
+            max_tool_rounds: None,
+            tool_dispatch_url: None,
+            model_id: model_id.map(|s| s.to_string()),
+            adapter: None,
+            truncate_sequence: true,
+            session_id: None,
+            files: None,
+            input_files: Vec::new(),
+        }));
+
+        self.runner.get_sender(model_id)?.send(request).await?;
+
+        let resp = rx
+            .recv()
+            .await
+            .ok_or(SdkError::Channel("channel closed unexpectedly".into()))?
+            .as_result()?;
+        match resp {
+            ResponseOk::HiddenStates {
+                hidden,
+                tokens,
+                prefix_cached_tokens,
+            } => Ok(HiddenStates {
+                hidden,
+                tokens,
+                prefix_cached_tokens,
+            }),
+            _ => Err(SdkError::UnexpectedResponse {
+                expected: "HiddenStates",
+            }),
         }
     }
 
@@ -637,6 +729,7 @@ impl Model {
             tools: None,
             logits_processors: None,
             return_raw_logits: false,
+            return_hidden_states: false,
             web_search_options: None,
             enable_code_execution: false,
             enable_shell: false,
@@ -714,6 +807,7 @@ impl Model {
             tools: None,
             logits_processors: None,
             return_raw_logits: false,
+            return_hidden_states: false,
             web_search_options: None,
             enable_code_execution: false,
             enable_shell: false,
@@ -804,6 +898,7 @@ impl Model {
                     tools: None,
                     logits_processors: None,
                     return_raw_logits: false,
+                    return_hidden_states: false,
                     web_search_options: None,
                     enable_code_execution: false,
                     enable_shell: false,

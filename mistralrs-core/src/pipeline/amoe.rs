@@ -31,7 +31,7 @@ use crate::{
 
 use super::{
     AnyMoePipelineMixin, CacheManagerMixin, EitherCache, ForwardInputsResult, IsqPipelineMixin,
-    MetadataMixin, PreProcessingMixin,
+    MetadataMixin, PreProcessingMixin, PrefillOutputMode,
 };
 
 pub struct AnyMoeLoader {
@@ -302,9 +302,9 @@ impl Pipeline for AnyMoePipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardInputsResult, candle_core::Error> {
-        get_mut_arcmutex!(self.target).forward_inputs(inputs, return_raw_logits)
+        get_mut_arcmutex!(self.target).forward_inputs(inputs, mode)
     }
 
     fn attach_speculative(
@@ -642,7 +642,8 @@ impl AnyMoePipelineMixin for AnyMoePipeline {
                 // === PREPARE AND RUN MODEL ==
 
                 // Run the model, ignoring the logits
-                let _ = target.forward_inputs(inputs.unwrap().inputs, false)?;
+                let _ =
+                    target.forward_inputs(inputs.unwrap().inputs, PrefillOutputMode::default())?;
 
                 // Clear the KV cache
                 target.set_none_cache(&mut input_seqs, true, true, false)?;
@@ -755,6 +756,7 @@ fn new_dummy_seq(
         None,
         None,
         None,
+        false,
         false,
         false,
         eos_toks,

@@ -288,7 +288,7 @@ impl PagedAttentionScheduler {
 
     fn supports_scheduler_visible_prompt_chunks(&self, seq: &Sequence) -> bool {
         self.scheduler_visible_prompt_chunks
-            && !seq.return_raw_logits
+            && !seq.wants_all_prompt_positions()
             && !seq.is_xlora()
             && matches!(seq.sequence_stepping_type(), SeqStepType::PromptAndDecode)
             && !seq.has_suffix_only_prefill_toks()
@@ -375,7 +375,7 @@ impl PagedAttentionScheduler {
             let require_uniform_length = self.requires_uniform_prompt_batch
                 || candidates.iter().any(|seq| {
                     let seq = get_mut_arcmutex!(seq);
-                    seq.return_raw_logits || seq.prefix_cache_len() > 0
+                    seq.wants_all_prompt_positions() || seq.prefix_cache_len() > 0
                 });
             let scheduled = self.bucket_and_preempt_sequences(
                 candidates,
@@ -1731,6 +1731,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             vec![],

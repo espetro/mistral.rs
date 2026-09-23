@@ -767,6 +767,7 @@ pub struct Sequence {
     prompt: String,
     sequence_stepping_type: SeqStepType,
     pub(crate) return_raw_logits: bool,
+    pub(crate) return_hidden_states: bool,
     token_offset: usize,
     eos_tokens: Vec<u32>,
     adapter: Option<AdapterLease>,
@@ -883,6 +884,7 @@ impl Sequence {
         seq_preallocated_cache: Option<SeqPreallocatedCache>,
         //
         return_raw_logits: bool,
+        return_hidden_states: bool,
         ignore_eos: bool,
         eos_tokens: Vec<u32>,
         sampling_seed: Option<u64>,
@@ -962,6 +964,7 @@ impl Sequence {
             tool_call_state,
             sequence_stepping_type,
             return_raw_logits,
+            return_hidden_states,
             token_offset: 0,
             eos_tokens,
             adapter: None,
@@ -1255,6 +1258,10 @@ impl Sequence {
     /// These tokens should be skipped during prefill.
     pub fn prefix_cache_len(&self) -> usize {
         self.prefix_cache_len
+    }
+
+    pub(crate) fn wants_all_prompt_positions(&self) -> bool {
+        self.return_raw_logits || self.return_hidden_states
     }
 
     /// Set the number of prefix tokens that are cached.
@@ -2693,6 +2700,7 @@ mod tests {
             None,
             None,
             None,
+            false,
             false,
             false,
             vec![],

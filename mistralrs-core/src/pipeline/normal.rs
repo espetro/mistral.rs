@@ -71,8 +71,8 @@ use crate::pipeline::text_models_inputs_processor::InputMetadata;
 #[cfg(feature = "cuda")]
 use crate::pipeline::text_models_inputs_processor::{FlashParams, PagedAttentionInputMetadata};
 use crate::pipeline::{
-    get_chat_template, hf::build_api, Modalities, ModelForwardContext, RecurrentBatchKind,
-    RecurrentMetadata, SupportedModality,
+    get_chat_template, hf::build_api, Modalities, ModelForwardContext, PrefillOutputMode,
+    RecurrentBatchKind, RecurrentMetadata, SupportedModality,
 };
 use crate::pipeline::{ChatTemplate, LocalModelPaths};
 use crate::prefix_cacher::PrefixCacheManagerV2;
@@ -2353,15 +2353,15 @@ impl Pipeline for NormalPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardInputsResult, candle_core::Error> {
-        Ok(self.forward_step(inputs, return_raw_logits)?.output)
+        Ok(self.forward_step(inputs, mode)?.output)
     }
 
     fn forward_step(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardStepResult, candle_core::Error> {
         let ModelInputs {
             input_ids,
@@ -2405,7 +2405,7 @@ impl Pipeline for NormalPipeline {
                     .map(|meta| (meta.0.get_kv_cache().clone(), meta.1.clone()));
 
                 #[cfg(feature = "cuda")]
-                if lora_execution.is_none() && !return_raw_logits {
+                if lora_execution.is_none() && !mode.all_positions() {
                     match self.try_cuda_decode_graph_forward(CudaDecodeGraphForwardInput {
                         input_ids: &input_ids,
                         seqlen_offsets: &seqlen_offsets,
@@ -2455,7 +2455,8 @@ impl Pipeline for NormalPipeline {
                     &flash_meta,
                 )
                 .with_recurrent_batch_kind(recurrent_batch_kind)
-                .with_recurrent_metadata(self.recurrent_metadata(recurrent_batch_kind));
+                .with_recurrent_metadata(self.recurrent_metadata(recurrent_batch_kind))
+                .with_hidden_states(mode.hidden_states);
                 let eager_result = mistralrs_quant::with_lora_execution(lora_execution, || {
                     self.model.forward(&input_ids, &mut ctx)
                 });
@@ -2480,7 +2481,9 @@ impl Pipeline for NormalPipeline {
                 flash_meta_full.as_ref().unwrap_or(&flash_meta),
             )?,
         };
-        let output = if return_raw_logits {
+        let output = if mode.hidden_states {
+            ForwardInputsResult::HiddenStates { hidden: logits }
+        } else if mode.raw_logits {
             ForwardInputsResult::RawLogits { logits }
         } else {
             ForwardInputsResult::CausalGeneration { logits }

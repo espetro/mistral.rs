@@ -1206,6 +1206,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             vec![],
             None,
         )

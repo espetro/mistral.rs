@@ -272,6 +272,7 @@ async fn fetch_embedding(
         tools: None,
         logits_processors: None,
         return_raw_logits: false,
+        return_hidden_states: false,
         web_search_options: None,
         enable_code_execution: false,
         enable_shell: false,
@@ -321,6 +322,7 @@ async fn fetch_embedding_tokens(
         tools: None,
         logits_processors: None,
         return_raw_logits: false,
+        return_hidden_states: false,
         web_search_options: None,
         enable_code_execution: false,
         enable_shell: false,
@@ -384,6 +386,7 @@ async fn process_embedding_response(
             | Response::ImageGeneration(_)
             | Response::Speech { .. }
             | Response::Raw { .. }
+            | Response::HiddenStates { .. }
             | Response::AgenticToolCallProgress { .. }
             | Response::BlockDenoisingProgress(_)
             | Response::AgenticToolApprovalRequired { .. }

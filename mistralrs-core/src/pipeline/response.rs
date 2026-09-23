@@ -6,8 +6,10 @@ use image::DynamicImage;
 use uuid::Uuid;
 
 use crate::{
+    pipeline::sampling,
+    prefix_cacher::PrefixCacheManagerV2,
     sequence::{Sequence, SequenceState, StopReason},
-    ImageChoice, ImageGenerationResponse, ImageGenerationResponseFormat,
+    ImageChoice, ImageGenerationResponse, ImageGenerationResponseFormat, Pipeline, Response,
 };
 
 pub async fn send_image_responses(
@@ -127,6 +129,46 @@ pub async fn send_raw_responses(
         .map_err(candle_core::Error::msg)?;
 
     seq.set_state(SequenceState::Done(StopReason::Length(0)));
+
+    Ok(())
+}
+
+/// Sends the post-norm hidden states of a prefill-only request and seeds the prefix cache.
+/// Each entry of `hidden` is `[new_tokens, hidden_size]` for the matching sequence; padding
+/// rows produced by the padded prompt batch are trimmed before responding.
+pub async fn send_hidden_state_responses<P: Pipeline + ?Sized>(
+    this: &P,
+    prefix_cacher: &mut PrefixCacheManagerV2,
+    input_seqs: &mut [&mut Sequence],
+    hidden: Vec<Tensor>,
+) -> candle_core::Result<()> {
+    if hidden.len() != input_seqs.len() {
+        candle_core::bail!(
+            "Hidden state count ({}) does not match number of sequences ({}).",
+            hidden.len(),
+            input_seqs.len()
+        );
+    }
+
+    for (seq, hidden) in input_seqs.iter_mut().zip(hidden) {
+        let new_tokens = seq.len() - seq.prefix_cache_len();
+        let hidden = if hidden.dim(0)? > new_tokens {
+            hidden.narrow(0, 0, new_tokens)?
+        } else {
+            hidden
+        };
+        seq.responder()
+            .send(Response::HiddenStates {
+                hidden,
+                tokens: seq.get_toks().to_vec(),
+                prefix_cached_tokens: seq.prefix_cache_len(),
+            })
+            .await
+            .map_err(candle_core::Error::msg)?;
+
+        sampling::cache_finished_sequence(this, prefix_cacher, seq)?;
+        seq.set_state(SequenceState::Done(StopReason::Length(0)));
+    }
 
     Ok(())
 }

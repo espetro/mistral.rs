@@ -496,6 +496,7 @@ impl futures::Stream for ChatCompletionStreamer {
                     Response::ImageGeneration(_) => unreachable!(),
                     Response::Speech { .. } => unreachable!(),
                     Response::Raw { .. } => unreachable!(),
+                    Response::HiddenStates { .. } => unreachable!(),
                     Response::Embeddings { .. } => unreachable!(),
                 }
             }
@@ -1076,6 +1077,7 @@ pub async fn parse_request(
             tools: normalized_tools.tools,
             logits_processors: None,
             return_raw_logits: false,
+            return_hidden_states: false,
             web_search_options: normalized_tools.web_search_options,
             enable_code_execution: normalized_tools.enable_code_execution,
             enable_shell: normalized_tools.enable_shell,
@@ -1357,6 +1359,7 @@ pub fn match_responses(state: SharedMistralRsState, response: Response) -> ChatC
         Response::ImageGeneration(_) => unreachable!(),
         Response::Speech { .. } => unreachable!(),
         Response::Raw { .. } => unreachable!(),
+        Response::HiddenStates { .. } => unreachable!(),
         Response::Embeddings { .. } => unreachable!(),
         Response::AgenticToolCallProgress { .. } => unreachable!(),
         Response::BlockDenoisingProgress(_) => unreachable!(),

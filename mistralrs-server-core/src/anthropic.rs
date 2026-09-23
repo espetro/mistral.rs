@@ -1610,6 +1610,7 @@ impl futures::Stream for AnthropicStreamer {
                         | Response::ImageGeneration(_)
                         | Response::Speech { .. }
                         | Response::Raw { .. }
+                        | Response::HiddenStates { .. }
                         | Response::Embeddings { .. } => unreachable!(),
                     }
                 }

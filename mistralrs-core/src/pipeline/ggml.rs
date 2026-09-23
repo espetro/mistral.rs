@@ -5,7 +5,7 @@ use super::{
 };
 use super::{
     AnyMoePipelineMixin, CacheManagerMixin, EitherCache, ForwardInputsResult, IsqPipelineMixin,
-    MetadataMixin, ModelCategory, PreProcessingMixin,
+    MetadataMixin, ModelCategory, PreProcessingMixin, PrefillOutputMode,
 };
 use crate::attention::ATTENTION_CHUNK_SIZE;
 use crate::device_map::DeviceMapper;
@@ -543,7 +543,7 @@ impl Pipeline for GGMLPipeline {
     fn forward_inputs(
         &mut self,
         inputs: Box<dyn Any>,
-        return_raw_logits: bool,
+        mode: PrefillOutputMode,
     ) -> Result<ForwardInputsResult, candle_core::Error> {
         let ModelInputs {
             input_ids,
@@ -574,7 +574,7 @@ impl Pipeline for GGMLPipeline {
                 flash_meta_full.as_ref().unwrap_or(&flash_meta),
             )?,
         };
-        if return_raw_logits {
+        if mode.raw_logits {
             Ok(ForwardInputsResult::RawLogits { logits })
         } else {
             Ok(ForwardInputsResult::CausalGeneration { logits })
