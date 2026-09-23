@@ -17,6 +17,8 @@ use crate::encode::{encode, Encoding, KevJson, SpecialIds, SERVE_MAX_BRANCH, SER
 use crate::head::{softmax, PointerHead};
 
 const DEFAULT_PREFIX_CACHE_SIZE: usize = 4;
+// state seed plus up to eight branch entries the cacher also admits
+const ENGINE_SLOTS_PER_STATE: usize = 9;
 
 pub struct KevJsonMeta {
     pub base: String,
@@ -60,6 +62,11 @@ impl SeenStates {
             if let Some(old) = self.order.pop_front() {
                 self.set.remove(&old);
             }
+        }
+    }
+    fn remove(&mut self, key: u64) {
+        if self.set.remove(&key) {
+            self.order.retain(|k| *k != key);
         }
     }
 }
@@ -115,7 +122,8 @@ impl KevEngine {
                 .unwrap_or(DEFAULT_PREFIX_CACHE_SIZE)
         });
         // one engine slot minimum so branches in a request reuse the seeded state
-        builder = builder.with_prefix_cache_n(Some(prefix_cache_size.max(1)));
+        builder =
+            builder.with_prefix_cache_n(Some(prefix_cache_size.max(1) * ENGINE_SLOTS_PER_STATE));
         let model = builder.build().await?;
         Ok(Self {
             model,
@@ -161,7 +169,7 @@ impl KevEngine {
         let t = Instant::now();
         let state_ids = &enc.ids[..enc.state_len];
         let key = hash_ids(state_ids);
-        let hit = {
+        let mut hit = {
             let mut seen = self.seen_states.lock().unwrap();
             if seen.contains(key) {
                 true
@@ -170,11 +178,7 @@ impl KevEngine {
                 false
             }
         };
-        if hit {
-            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        } else {
-            self.misses
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if !hit {
             self.seed_state(state_ids).await?;
         }
         let futs = enc.branches.iter().map(|br| {
@@ -183,6 +187,21 @@ impl KevEngine {
             self.model.send_hidden_states_request(toks)
         });
         let responses = futures::future::join_all(futs).await;
+        let engine_hit = hit
+            && responses.iter().all(|r| {
+                r.as_ref()
+                    .is_ok_and(|r| r.prefix_cached_tokens == enc.state_len)
+            });
+        if hit && !engine_hit {
+            self.seen_states.lock().unwrap().remove(key);
+            hit = false;
+        }
+        if hit {
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            self.misses
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let mut out = Vec::with_capacity(enc.branches.len());
         for (br, res) in enc.branches.iter().zip(responses) {
             let res = res?;
@@ -212,7 +231,7 @@ impl KevEngine {
                 tokens: enc.ids.len(),
                 state_tokens: enc.state_len,
                 latency_ms,
-                prefix_cache_hit: hit,
+                prefix_cache_hit: hit && engine_hit,
             },
         ))
     }
