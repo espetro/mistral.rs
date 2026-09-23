@@ -109,6 +109,13 @@ impl KevEngine {
             builder = builder.with_paged_attn(PagedAttentionMetaBuilder::default().build()?);
         }
         let model = builder.build().await?;
+        let device = model.config()?.device;
+        let device = match device {
+            candle_core::Device::Cpu => "cpu".to_string(),
+            candle_core::Device::Cuda(dev) => format!("cuda:{}", dev.ordinal()),
+            candle_core::Device::Metal(_) => "metal".to_string(),
+            other => format!("{other:?}").to_lowercase(),
+        };
         let prefix_cache_size = prefix_cache_size.unwrap_or_else(|| {
             std::env::var("KEV_PREFIX_CACHE")
                 .ok()
@@ -134,7 +141,7 @@ impl KevEngine {
             hits: 0.into(),
             misses: 0.into(),
             prefix_cache_size,
-            device: "cpu".to_string(),
+            device,
             dtype: dtype.to_string(),
             run: String::new(),
         })

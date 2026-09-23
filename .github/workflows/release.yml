@@ -189,7 +189,7 @@ jobs:
             sleep $((i * 20))
           done
       - name: Build
-        run: cargo build --release --locked --offline --features "metal" -p mistralrs-cli -p kev-rs
+        run: cargo build --release --locked --offline --features "mistralrs-cli/metal,kev-rs/metal" -p mistralrs-cli -p kev-rs
       - name: Package
         run: tar czf mistralrs-metal-aarch64-apple-darwin.tar.gz -C target/release mistralrs kev-rs
       - uses: softprops/action-gh-release@v2
