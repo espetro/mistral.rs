@@ -125,6 +125,11 @@ impl KevEngine {
         builder =
             builder.with_prefix_cache_n(Some(prefix_cache_size.max(1) * ENGINE_SLOTS_PER_STATE));
         let model = builder.build().await?;
+        let device = match model.config()?.device.location() {
+            candle_core::DeviceLocation::Cpu => "cpu".to_string(),
+            candle_core::DeviceLocation::Cuda { gpu_id } => format!("cuda:{gpu_id}"),
+            candle_core::DeviceLocation::Metal { .. } => "metal".to_string(),
+        };
         Ok(Self {
             model,
             tok,
@@ -144,7 +149,7 @@ impl KevEngine {
             hits: 0.into(),
             misses: 0.into(),
             prefix_cache_size,
-            device: "cpu".to_string(),
+            device,
             dtype: dtype.to_string(),
             run: String::new(),
         })

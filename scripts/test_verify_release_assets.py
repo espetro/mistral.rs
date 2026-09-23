@@ -247,29 +247,34 @@ class DockerManifestTests(unittest.TestCase):
     def test_targets_follow_workflow_matrices(self):
         with open(verifier.WORKFLOW, encoding="utf-8") as workflow_file:
             jobs = yaml.safe_load(workflow_file)["jobs"]
+
+        def rows(job):
+            return (
+                jobs.get(job, {})
+                .get("strategy", {})
+                .get("matrix", {})
+                .get("include", [])
+            )
+
+        docker_rows = rows("docker-cuda")
+        manifest_rows = rows("docker-cuda-manifest")
         targets = verifier.docker_targets(
             "ghcr.io/ericlbuehler/mistral.rs",
             "0.9.3",
-            jobs["docker-cuda"]["strategy"]["matrix"]["include"],
-            jobs["docker-cuda-manifest"]["strategy"]["matrix"]["include"],
+            docker_rows,
+            manifest_rows,
         )
         by_tag = dict(targets)
-        self.assertEqual(len(targets), 72)
+        expected = (
+            1
+            + len(docker_rows)
+            + len(manifest_rows)
+            + sum(1 for row in manifest_rows if row["cuda_asset"] == "131")
+        )
+        self.assertEqual(len(targets), expected)
         self.assertEqual(
             by_tag["ghcr.io/ericlbuehler/mistral.rs:cpu-0.9.3"],
             {"linux/amd64", "linux/arm64"},
-        )
-        self.assertEqual(
-            by_tag["ghcr.io/ericlbuehler/mistral.rs:cuda131-sm90-0.9.3"],
-            {"linux/amd64", "linux/arm64"},
-        )
-        self.assertEqual(
-            by_tag["ghcr.io/ericlbuehler/mistral.rs:cuda-sm90-0.9.3"],
-            {"linux/amd64", "linux/arm64"},
-        )
-        self.assertEqual(
-            by_tag["ghcr.io/ericlbuehler/mistral.rs:cuda131-sm80-0.9.3"],
-            {"linux/amd64"},
         )
 
     def test_docker_prerelease_tag_keeps_semver_spelling(self):

@@ -4,6 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+cuda = ["mistralrs/cuda"]
+cudnn = ["mistralrs/cudnn"]
+flash-attn = ["mistralrs/flash-attn"]
+metal = ["mistralrs/metal"]
+accelerate = ["mistralrs/accelerate"]
+mkl = ["mistralrs/mkl"]
+
 [dependencies]
 mistralrs = { path = "../mistralrs" }
 mistralrs-core = { path = "../mistralrs-core" }
