@@ -15,7 +15,7 @@ installer overrides are fork-only workarounds, not upstream material). Binaries
 ship `mistralrs` and `kev-rs` in the same archive. To install a fork prerelease:
 
 ```bash
-MISTRALRS_INSTALL_TAG=v0.9.4-pre.1 ./install.sh
+MISTRALRS_INSTALL_TAG=v0.9.3-pre.1 ./install.sh
 ```
 
 ## Usage

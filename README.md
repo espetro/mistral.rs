@@ -7,9 +7,9 @@
 >
 > ```sh
 > # installer (picks the Metal / CUDA / CPU archive for this machine)
-> MISTRALRS_INSTALL_TAG=v0.9.4-pre.1 sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"
+> MISTRALRS_INSTALL_TAG=v0.9.3-pre.1 sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"
 > # or with mise (GitHub-releases backend; `matching` narrows to the CPU archive, drop it on macOS)
-> mise use -g "github:espetro/mistral.rs[matching=mistralrs-cpu]@v0.9.4-pre.1"
+> mise use -g "github:espetro/mistral.rs[matching=mistralrs-cpu]@v0.9.3-pre.1"
 > ```
 >
 > Or build from source: `cargo build --release -p kev-rs --features kev-rs/metal` (or `kev-rs/cuda`, or no feature for CPU).
