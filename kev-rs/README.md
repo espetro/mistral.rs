@@ -9,11 +9,13 @@ delimiter rows for the pointer head.
 ## Kev fork
 
 This fork's release workflow builds GitHub prereleases on GitHub-hosted runners
-(Metal, Linux CPU x86_64/aarch64, Windows CPU). Binaries ship `mistralrs` and
-`kev-rs` in the same archive. To install a fork prerelease:
+(Metal, Linux CPU x86_64/aarch64, Windows CPU, Linux CUDA 12.8 for sm86/89/120
+compiled without a GPU in the `nvidia/cuda` devel container; the CUDA leg and the
+installer overrides are fork-only workarounds, not upstream material). Binaries
+ship `mistralrs` and `kev-rs` in the same archive. To install a fork prerelease:
 
 ```bash
-MISTRALRS_REPO_URL=https://github.com/espetro/mistral.rs MISTRALRS_INSTALL_TAG=v0.9.4-pre.1 ./install.sh
+MISTRALRS_INSTALL_TAG=v0.9.4-pre.1 ./install.sh
 ```
 
 ## Usage
