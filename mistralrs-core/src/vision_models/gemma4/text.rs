@@ -2413,6 +2413,9 @@ impl TextModel {
             }
         }
         let mut xs = ctx.lm_head(&*self.lm_head, &xs)?;
+        if ctx.returns_hidden_states() {
+            return Ok(xs);
+        }
         if let Some(final_logit_softcapping) = self.final_logit_softcapping {
             xs = softcap(&xs, final_logit_softcapping as f32)?;
         }
