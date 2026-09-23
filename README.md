@@ -6,13 +6,15 @@
 > **1. Install** (fork prereleases ship `mistralrs` + `kev-rs` in one archive; Metal, Linux CPU x86_64/aarch64, Windows CPU, and consumer CUDA sm86/89/120 on Linux):
 >
 > ```sh
-> # installer (picks the Metal / CUDA / CPU archive for this machine)
-> MISTRALRS_INSTALL_TAG=v0.9.3-pre.1 sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"
-> # or with mise (GitHub-releases backend; `matching` narrows to the CPU archive, drop it on macOS)
-> mise use -g "github:espetro/mistral.rs[matching=mistralrs-cpu]@v0.9.3-pre.1"
+> # installer: newest fork release (prereleases included), picks the Metal / CUDA / CPU archive for this machine
+> sh -c "$(curl -fsSL https://raw.githubusercontent.com/espetro/mistral.rs/kev/install.sh)"
+> # pin a release instead: MISTRALRS_INSTALL_TAG=v0.9.3-pre.1 sh -c "$(curl ...)"
+> # or with mise (GitHub-releases backend; `prerelease=true` is required since fork releases are prereleases,
+> # `matching` narrows to the CPU archive, use mistralrs-metal on macOS)
+> mise use -g "github:espetro/mistral.rs[prerelease=true,matching=mistralrs-cpu]@latest"
 > ```
 >
-> Or build from source: `cargo build --release -p kev-rs --features kev-rs/metal` (or `kev-rs/cuda`, or no feature for CPU).
+> All builds are listed on the [releases page](https://github.com/espetro/mistral.rs/releases); each archive contains `mistralrs` (the stock server/CLI, `mistralrs serve -m <model>` with the web UI at `/ui`) and `kev-rs`. Or build from source: `cargo build --release -p kev-rs --features kev-rs/metal` (or `kev-rs/cuda`, or no feature for CPU).
 >
 > **2. Get a checkpoint.** `kev-rs` reads an exported directory (`model/` merged HF weights + tokenizer, `head.safetensors`, `kev.json`). Export one from the [Kev weights on Hugging Face](https://huggingface.co/collections/jaredpalmer/kev-6aad9d0ea49f2589665e07cd) (sizes 0.8B / 4B / 9B), from a checkout of the Kev repo:
 >

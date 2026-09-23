@@ -491,7 +491,24 @@ PREBUILT_CUDA_SMS_X86="80 86 89 90 100 120"
 PREBUILT_CUDA_SMS_AARCH64="90 100 121"
 # Newest first. Format is asset-token:minimum-driver-cuda-code.
 PREBUILT_CUDA_VARIANTS="133:1303 132:1302 131:1301 130:1300 129:1209 128:1208"
-# MISTRALRS_INSTALL_TAG pins a specific release (e.g. v0.8.9); default is the latest stable release.
+# FORK-ONLY (espetro/mistral.rs): releases are prereleases, which GitHub's /releases/latest skips,
+# so resolve the newest published release (prereleases included) through the API.
+latest_fork_release_tag() {
+    # releases.atom is newest-first and not subject to the API rate limit
+    tag=$(curl --proto '=https' --tlsv1.2 -fsSL "$MISTRALRS_REPO_URL/releases.atom" 2>/dev/null \
+        | sed -n 's#.*/releases/tag/\([^"]*\)".*#\1#p' | head -n 1)
+    if [ -z "$tag" ]; then
+        api_url=$(printf '%s' "$MISTRALRS_REPO_URL" | sed 's#https://github.com/#https://api.github.com/repos/#')
+        tag=$(curl --proto '=https' --tlsv1.2 -fsSL "$api_url/releases?per_page=1" 2>/dev/null \
+            | tr ',' '\n' | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    fi
+    printf '%s\n' "$tag"
+}
+
+# MISTRALRS_INSTALL_TAG pins a specific release (e.g. v0.8.9); default is the newest release.
+if [ -z "$MISTRALRS_INSTALL_TAG" ]; then
+    MISTRALRS_INSTALL_TAG=$(latest_fork_release_tag)
+fi
 if [ -n "$MISTRALRS_INSTALL_TAG" ]; then
     RELEASE_BASE="$MISTRALRS_REPO_URL/releases/download/$MISTRALRS_INSTALL_TAG"
 else
