@@ -151,7 +151,12 @@ pub async fn send_hidden_state_responses<P: Pipeline + ?Sized>(
     }
 
     for (seq, hidden) in input_seqs.iter_mut().zip(hidden) {
-        let new_tokens = seq.len() - seq.prefix_cache_len();
+        // Under SuffixOnly prefill, len() already counts only the uncached suffix.
+        let new_tokens = if seq.has_suffix_only_prefill_toks() {
+            seq.get_toks().len()
+        } else {
+            seq.len() - seq.prefix_cache_len()
+        };
         let hidden = if hidden.dim(0)? > new_tokens {
             hidden.narrow(0, 0, new_tokens)?
         } else {
