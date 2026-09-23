@@ -52,15 +52,15 @@ fn encode_err(e: &anyhow::Error) -> Response {
     api_err(StatusCode::UNPROCESSABLE_ENTITY, e.to_string())
 }
 
-async fn answer(engine: &KevEngine, req: &SystemOneRequest) -> Result<Value, Response> {
+async fn answer(engine: &KevEngine, req: &SystemOneRequest) -> Result<Value, Box<Response>> {
     req.validate()
-        .map_err(|e| api_err(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
-    let (rec, meta) =
-        to_record(req).map_err(|e| api_err(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?;
+        .map_err(|e| Box::new(api_err(StatusCode::UNPROCESSABLE_ENTITY, e.to_string())))?;
+    let (rec, meta) = to_record(req)
+        .map_err(|e| Box::new(api_err(StatusCode::UNPROCESSABLE_ENTITY, e.to_string())))?;
     let (ps, m) = engine
         .probs_record(&rec)
         .await
-        .map_err(|e| encode_err(&e))?;
+        .map_err(|e| Box::new(encode_err(&e)))?;
     let answers = to_answers(&ps, &meta);
     Ok(json!({
         "model": req.model,
@@ -85,7 +85,7 @@ async fn systemone(State(s): State<Shared>, body: axum::body::Bytes) -> Response
     };
     match answer(&s.engine, &req).await {
         Ok(v) => Json(v).into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 
@@ -142,7 +142,7 @@ async fn permute(State(s): State<Shared>, body: axum::body::Bytes) -> Response {
                     "latency_ms": resp["latency_ms"],
                 }));
             }
-            Err(e) => return e,
+            Err(e) => return *e,
         }
     }
     let mut spread = serde_json::Map::new();
@@ -184,7 +184,7 @@ async fn separate(State(s): State<Shared>, body: axum::body::Bytes) -> Response 
                     answers.insert(qid.clone(), a.clone());
                 }
             }
-            Err(e) => return e,
+            Err(e) => return *e,
         }
     }
     let answers_v = Value::Object(answers);
