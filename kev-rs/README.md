@@ -104,6 +104,15 @@ Verdicts, measured on this box:
   recurrent path) at `afq8`, `self_attn` and `mlp` at `afq6` matches full `--isq 8`
   parity numbers on both 0.8B and 9B at ~25% less weight. Dropping attn/mlp to `afq4`
   loses too much (4/40).
+
+  ```yaml
+  '/linear_attn\./':
+    isq: afq8
+  '/self_attn\./':
+    isq: afq6
+  '/mlp\./':
+    isq: afq6
+  ```
 - **imatrix calibration** now runs on hybrid models (upstream fix: the calibration
   forward allocates a temporary recurrent slot) but adds nothing here: `--isq 8` +
   imatrix is bit-identical to plain `--isq 8`, and `--isq 4` + imatrix is *worse* than
