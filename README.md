@@ -7,8 +7,8 @@
 >
 > | Hub id | Source run | Download | RAM | Notes |
 > |---|---|---|---|---|
-> | `espetro/kev-0.8b-mistralrs` | [jaredpalmer/kev-0.8b](https://huggingface.co/jaredpalmer/kev-0.8b) | 2.9 GB | ~4 GB | fp32; lightest, laptop-friendly |
-> | `espetro/kev-4b-mistralrs` | [jaredpalmer/kev-4b](https://huggingface.co/jaredpalmer/kev-4b) | 16 GB | ~18 GB | fp32; middle ground |
+> | `espetro/kev-0.8b-mistralrs` | [jaredpalmer/kev-0.8b](https://huggingface.co/jaredpalmer/kev-0.8b) | 1.5 GB | ~2.5 GB | bf16 (fp32 on the `fp32` branch); lightest, laptop-friendly |
+> | `espetro/kev-4b-mistralrs` | [jaredpalmer/kev-4b](https://huggingface.co/jaredpalmer/kev-4b) | 8 GB | ~10 GB | bf16 (fp32 on the `fp32` branch); middle ground |
 > | `espetro/kev-9b-mistralrs` | [jaredpalmer/kev-9b](https://huggingface.co/jaredpalmer/kev-9b) | 17 GB | ~20 GB | bf16; most capable |
 >
 > **1. Install** (every fork release ships `mistralrs` + `kev-rs` in one archive: Metal, Linux CPU x86_64/aarch64, Windows CPU, consumer CUDA sm86/89/120 on Linux). The installer and `mise` always resolve the newest fork release, prereleases included, so nothing here pins a version:
@@ -34,7 +34,7 @@
 > # {"model":"kev-latest","answers":{"department":{"type":"choice","choice":"shipping","confidence":0.34,"probabilities":{...}}},"usage":{...},"latency_ms":...}
 > ```
 >
-> Swap in `espetro/kev-4b-mistralrs` / `jaredpalmer/kev-4b` for the 4B model, or `espetro/kev-9b-mistralrs` / `jaredpalmer/kev-9b` for the 9B. `--isq 8` quantizes the checkpoint in-situ at load (roughly halves memory again, at some accuracy cost), and `--paged` enables PagedAttention for the attention layers.
+> Swap in `espetro/kev-4b-mistralrs` / `jaredpalmer/kev-4b` for the 4B model, or `espetro/kev-9b-mistralrs` / `jaredpalmer/kev-9b` for the 9B. `--isq 8` quantizes the checkpoint in-situ at load (roughly halves memory again, at some accuracy cost), `--topology <yaml>` mixes ISQ levels per tensor (e.g. GDN layers 8-bit, attention/MLP 6-bit), and `--paged` enables PagedAttention for the attention layers. GGUF checkpoints are not usable here; measured parity numbers for every variant are in [kev-rs/README.md](kev-rs/README.md#quantization).
 >
 > **3. Use the API: single, batch, parallel.**
 >
@@ -89,7 +89,7 @@
 >
 > **Hosted / browser.** No in-browser inference: `kev-rs` is a native binary (Candle CPU/Metal/CUDA), there is no WASM target, and even the 0.8B export is 2.9 GB of fp32 weights. What works today is a hosted API plus a browser UI: the Linux CPU archive or the Docker image runs anywhere a container or shell is available (a Hugging Face Space with a Docker SDK, a Kaggle/Colab notebook, a VPS), and Kev's playground or the TypeSafe SDK talks to it over HTTP. These hosted paths have not been exercised from this fork yet; the Linux binary, the installer, the Hub download and the Docker image have.
 >
-> **Status.** CPU parity with Kev's PyTorch reference on the 0.8B fixtures is max |dp| 0.00011, 0 argmax flips (34 questions); the bf16 9B export shows max |dp| 0.023, 0/40 flips, and `--isq 8` shows 1/40 flips on the same set. Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA binaries are built by CI but their runtime parity and speed are not yet measured; `date_facts` and `option_isolation` checkpoints are not supported. Details in [kev-rs/README.md](kev-rs/README.md); the engine change is a generic `return_hidden_states` prefill mode in `mistralrs-core` (intended for upstream). The release workflow's CUDA-on-free-runner leg, the `cpu-kev` image tag and the installer overrides are **fork-only workarounds** and will not be proposed upstream. Everything else is stock upstream mistral.rs.
+> **Status.** CPU parity with Kev's PyTorch reference on the 0.8B fixtures is max |dp| 0.00011, 0 argmax flips (34 questions); the bf16 exports show 0/40 flips on all three sizes (9B max |dp| 0.023, 0.8B 0.018, 4B 0.055) and `--isq 8` shows at most 1/40 flips (full matrix in [kev-rs/README.md](kev-rs/README.md#quantization)). Kev's `tests/test_api.py` passes 10/10 against `kev-rs`. Metal and CUDA binaries are built by CI but their runtime parity and speed are not yet measured; `date_facts` and `option_isolation` checkpoints are not supported. Details in [kev-rs/README.md](kev-rs/README.md); the engine change is a generic `return_hidden_states` prefill mode in `mistralrs-core` (intended for upstream). The release workflow's CUDA-on-free-runner leg, the `cpu-kev` image tag and the installer overrides are **fork-only workarounds** and will not be proposed upstream. Everything else is stock upstream mistral.rs.
 
 <!--
 <h1 align="center">
