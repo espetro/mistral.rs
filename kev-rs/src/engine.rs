@@ -4,7 +4,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -86,12 +86,20 @@ fn hash_ids(ids: &[u32]) -> u64 {
     h.finish()
 }
 
+#[derive(Default)]
+pub struct LoadOpts {
+    pub dtype: Option<String>,
+    pub isq: Option<String>,
+    pub imatrix: Option<PathBuf>,
+    pub calibration_file: Option<PathBuf>,
+    pub topology: Option<PathBuf>,
+    pub paged: bool,
+}
+
 impl KevEngine {
     pub async fn load(
         checkpoint: &Path,
-        dtype: Option<&str>,
-        isq: Option<&str>,
-        paged: bool,
+        opts: &LoadOpts,
         prefix_cache_size: Option<usize>,
     ) -> Result<Self> {
         let kev: KevJson = serde_json::from_str(
@@ -109,7 +117,11 @@ impl KevEngine {
             kev.head_dim,
             kev.temperature as f64,
         )?;
-        let dtype = dtype.or(kev.dtype.as_deref()).unwrap_or("f32");
+        let dtype = opts
+            .dtype
+            .as_deref()
+            .or(kev.dtype.as_deref())
+            .unwrap_or("f32");
         let mut builder = ModelBuilder::new(model_dir.to_string_lossy().to_string());
         builder = match dtype {
             "auto" => builder.with_dtype(ModelDType::Auto),
@@ -118,15 +130,24 @@ impl KevEngine {
             "f16" => builder.with_dtype(ModelDType::F16),
             other => bail!("unknown --dtype {other} (want auto|f32|bf16|f16)"),
         };
-        if let Some(isq) = isq {
-            builder = match IsqBits::try_from(isq) {
+        if let Some(isq) = &opts.isq {
+            builder = match IsqBits::try_from(isq.as_str()) {
                 Ok(bits) => builder.with_auto_isq(bits),
                 Err(()) => {
                     builder.with_isq(parse_isq_value(isq, None).map_err(|e| anyhow::anyhow!(e))?)
                 }
             };
         }
-        if paged {
+        if let Some(topology) = &opts.topology {
+            builder = builder.with_topology_from_path(topology)?;
+        }
+        if let Some(imatrix) = &opts.imatrix {
+            builder = builder.with_imatrix(imatrix.clone());
+        }
+        if let Some(calibration_file) = &opts.calibration_file {
+            builder = builder.with_calibration_file(calibration_file.clone());
+        }
+        if opts.paged {
             builder = builder.with_paged_attn(PagedAttentionMetaBuilder::default().build()?);
         }
         let prefix_cache_size = prefix_cache_size.unwrap_or_else(|| {

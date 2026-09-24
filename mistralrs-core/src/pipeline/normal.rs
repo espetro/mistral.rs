@@ -1357,7 +1357,8 @@ impl Loader for NormalLoader {
         plan.validate_tracked_selection(&tracker.get())?;
 
         let imatrix_map = if plan.wants_imatrix {
-            let drive = super::isq_flow::NormalCalibrationDrive(&*model);
+            let drive =
+                super::isq_flow::NormalCalibrationDrive(&*model, std::cell::Cell::new(None));
             Some(super::isq_flow::resolve_imatrix_map(
                 &drive,
                 &tracker.get().clone(),

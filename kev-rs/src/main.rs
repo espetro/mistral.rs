@@ -11,7 +11,7 @@ use serde_json::Value;
 use kev_rs::api::{to_record, SystemOneRequest};
 use kev_rs::checkpoint;
 use kev_rs::encode::{self, Branch, Encoding, KevJson, MAX_BRANCH, MAX_STATE};
-use kev_rs::engine::KevEngine;
+use kev_rs::engine::{KevEngine, LoadOpts};
 
 #[derive(Parser)]
 #[command(name = "kev-rs")]
@@ -41,6 +41,15 @@ enum Cmd {
         /// In-situ quantization: a bit width (2-8, e.g. `--isq 8`) or a type like q8_0, afq8.
         #[arg(long)]
         isq: Option<String>,
+        /// Importance matrix for ISQ: a llama.cpp .imatrix or a collected .cimatrix file.
+        #[arg(long)]
+        imatrix: Option<PathBuf>,
+        /// Plain-text file run through the model at load to collect an imatrix (needs --isq).
+        #[arg(long)]
+        calibration_file: Option<PathBuf>,
+        /// Per-layer ISQ/device topology yaml; overrides --isq on overlapping layers.
+        #[arg(long)]
+        topology: Option<PathBuf>,
         /// The checkpoint name reported by /v1/models (e.g. jaredpalmer/kev-0.8b).
         #[arg(long, default_value = "kev-latest")]
         run: String,
@@ -59,6 +68,12 @@ enum Cmd {
         dtype: Option<String>,
         #[arg(long)]
         isq: Option<String>,
+        #[arg(long)]
+        imatrix: Option<PathBuf>,
+        #[arg(long)]
+        calibration_file: Option<PathBuf>,
+        #[arg(long)]
+        topology: Option<PathBuf>,
     },
     /// Compare the record->ids encoder output against the reference JSON, token-exact.
     EncodeCheck {
@@ -94,15 +109,9 @@ fn argmax(p: &[f32]) -> usize {
         .unwrap_or(0)
 }
 
-async fn parity(
-    checkpoint: &Path,
-    reference: &Path,
-    dtype: Option<&str>,
-    isq: Option<&str>,
-    paged: bool,
-) -> Result<()> {
+async fn parity(checkpoint: &Path, reference: &Path, opts: &LoadOpts) -> Result<()> {
     let entries: Vec<RefEntry> = serde_json::from_str(&std::fs::read_to_string(reference)?)?;
-    let engine = KevEngine::load(checkpoint, dtype, isq, paged, None).await?;
+    let engine = KevEngine::load(checkpoint, opts, None).await?;
     let mut max_dp = 0f32;
     let mut sum_dp = 0f64;
     let mut n_cells = 0usize;
@@ -242,12 +251,22 @@ async fn main() -> Result<()> {
             paged,
             dtype,
             isq,
+            imatrix,
+            calibration_file,
+            topology,
             run,
             release_date,
         } => {
             let checkpoint = checkpoint::resolve(&checkpoint).await?;
-            let mut engine =
-                KevEngine::load(&checkpoint, dtype.as_deref(), isq.as_deref(), paged, None).await?;
+            let opts = LoadOpts {
+                dtype,
+                isq,
+                imatrix,
+                calibration_file,
+                topology,
+                paged,
+            };
+            let mut engine = KevEngine::load(&checkpoint, &opts, None).await?;
             engine.run = run;
             kev_rs::server::serve(engine, release_date, &host, port).await
         }
@@ -257,16 +276,20 @@ async fn main() -> Result<()> {
             paged,
             dtype,
             isq,
+            imatrix,
+            calibration_file,
+            topology,
         } => {
             let checkpoint = checkpoint::resolve(&checkpoint).await?;
-            parity(
-                &checkpoint,
-                &reference,
-                dtype.as_deref(),
-                isq.as_deref(),
+            let opts = LoadOpts {
+                dtype,
+                isq,
+                imatrix,
+                calibration_file,
+                topology,
                 paged,
-            )
-            .await
+            };
+            parity(&checkpoint, &reference, &opts).await
         }
         Cmd::EncodeCheck {
             checkpoint,

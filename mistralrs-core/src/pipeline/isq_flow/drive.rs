@@ -14,6 +14,7 @@ use super::super::isq::load_imatrix_map;
 use super::super::text_models_inputs_processor::{make_prompt_chunk, InputMetadata};
 use super::super::{
     EitherCache, EmbeddingModel, ModelForwardContext, MultimodalModel, NormalModel,
+    RecurrentBatchKind, RecurrentMetadata,
 };
 use super::harvest_imatrix;
 
@@ -27,7 +28,10 @@ pub(crate) trait CalibrationDrive {
     }
 }
 
-pub(crate) struct NormalCalibrationDrive<'a>(pub &'a dyn NormalModel);
+pub(crate) struct NormalCalibrationDrive<'a>(
+    pub &'a dyn NormalModel,
+    pub std::cell::Cell<Option<usize>>,
+);
 
 impl CalibrationDrive for NormalCalibrationDrive<'_> {
     fn calibration_forward(&self, inputs: &InputMetadata) -> candle_core::Result<()> {
@@ -39,11 +43,31 @@ impl CalibrationDrive for NormalCalibrationDrive<'_> {
             None,
             &inputs.flash_meta,
         );
+        if self.0.cache().is_hybrid() {
+            let mut hybrid_cache = self.0.cache().hybrid();
+            if hybrid_cache.state_indices().is_none() {
+                let slot = hybrid_cache.allocate_seq(usize::MAX)?;
+                hybrid_cache.install_sequence_state_indices(&[(usize::MAX, slot)])?;
+                self.1.set(Some(slot));
+            }
+            if let Some(state_indices) = hybrid_cache.state_indices().cloned() {
+                ctx = ctx.with_recurrent_metadata(Some(RecurrentMetadata::new(
+                    RecurrentBatchKind::Prefill,
+                    state_indices,
+                    hybrid_cache.state_indices_host().map(ToOwned::to_owned),
+                )));
+            }
+        }
         self.0.forward(&input, &mut ctx)?;
         Ok(())
     }
 
     fn reset_cache(&self) -> candle_core::Result<()> {
+        if self.0.cache().is_hybrid() {
+            if let Some(slot) = self.1.take() {
+                self.0.cache().hybrid().release_seq(usize::MAX, slot)?;
+            }
+        }
         reset_either_cache(self.0.cache())
     }
 
